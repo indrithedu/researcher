@@ -1,29 +1,38 @@
-# Byte-compiled / optimized / DLL files
+# JewelScope Research — .gitignore
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Environment files
+*.so
+.Python
 .env
-.venv
-env/
+.venv/
 venv/
+ENV/
+env/
+*.egg-info/
+dist/
+build/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.tox/
+.coverage
+coverage.xml
+htmlcov/
 
-# Database files
+# Playwright browsers (installed locally)
+browsers/
+
+# JewelScope specific
 databases/*.db
-db.sqlite3
-db.sqlite3-journal
-
-# Report files
 reports/*.html
 reports/*.pdf
+sessions/
 
-# Pickle files
-*.pkl
-
-# Log files
-*.log
-
-# Project specific
-scraper_sources/__pycache__/
-utils/__pycache__/
+# OS
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~

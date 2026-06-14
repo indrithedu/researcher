@@ -10,18 +10,22 @@ A self‑contained local web app that automatically scrapes 15+ jewelry and Etsy
 
 ```bash
 # 1. Clone and enter the directory
-git clone <your-repo-url> jewelscope
+git clone https://github.com/indrithedu/researcher.git jewelscope
 cd jewelscope
 
-# 2. Install dependencies
+# 2. Create a virtual environment and install dependencies
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # 3. Install Playwright browsers (needed for stealth browsing)
-playwright install chromium
+PLAYWRIGHT_BROWSERS_PATH=./browsers playwright install chromium
 
 # 4. Run the app
-streamlit run main.py
+PLAYWRIGHT_BROWSERS_PATH=./browsers streamlit run main.py
 ```
+
+> **Note:** `PLAYWRIGHT_BROWSERS_PATH=./browsers` ensures Playwright installs browsers inside the project directory. You can also set this permanently: `export PLAYWRIGHT_BROWSERS_PATH=./browsers`
 
 The app will open in your browser at `http://localhost:8501`.
 
@@ -282,4 +286,4 @@ brew install pango
 
 ## 📄 License
 
-MIT — Use freely, but responsibly.\n\n---\nInitial release.
+MIT — Use freely, but responsibly.
