@@ -1,0 +1,264 @@
+# =============================================================================
+# JewelScope Research — Configuration File
+# =============================================================================
+# All settings are editable. The app reads this file on startup.
+# Changes to sources take effect on the next scan cycle.
+
+# =============================================================================
+# GENERAL SETTINGS
+# =============================================================================
+app:
+  name: "JewelScope Research"
+  version: "1.0.0"
+  data_dir: "./databases"
+  report_dir: "./reports"
+  log_level: "INFO"                       # DEBUG, INFO, WARNING, ERROR
+  report_max_headlines: 10                 # Max headlines per report
+  report_max_summaries: 15                 # Max items in quick-scan table
+
+# =============================================================================
+# ANTI-DETECTION ENGINE
+# =============================================================================
+anti_detection:
+  enabled: true
+  request_delay_min: 5                     # seconds
+  request_delay_max: 25                    # seconds
+  max_retries: 3
+  exponential_backoff_base: 2.0
+  exponential_backoff_max: 60.0            # max wait seconds between retries
+
+  # Browser engine: "playwright" (recommended) or "selenium"
+  browser_engine: "playwright"
+
+  # CAPTCHA solving — get API key from https://2captcha.com
+  captcha:
+    enabled: false
+    service: "2captcha"                    # "2captcha" or "capmonster"
+    api_key: ""                            # <-- SET YOUR API KEY HERE
+
+  # TLS fingerprint spoofing via curl_cffi
+  tls_fingerprint: "chrome120"             # chrome120, chrome107, safari15_5, etc.
+
+  # Cookie & session persistence
+  session_persistence: true                # saves cookies between runs
+  session_dir: "./databases/sessions"
+
+  # Rotating proxy pool — add your proxies here
+  # Format: "http://user:pass@host:port" or "socks5://user:pass@host:port"
+  # If empty, direct connections are used (works for many sources)
+  proxies:
+    - ""                                   # direct connection (fallback)
+    # - "http://user:pass@proxy1.example.com:8080"
+    # - "socks5://user:pass@proxy2.example.com:1080"
+    # - "http://user:pass@proxy3.example.com:3128"
+
+  # Proxy rotation strategy: "round_robin" or "random"
+  proxy_strategy: "random"
+
+# =============================================================================
+# NEWS SOURCES — Add or remove URLs here
+# =============================================================================
+# Each source needs a name, URL, type, and optional CSS selectors.
+# Type can be: "article_list" (list of article links), "rss" (RSS feed),
+# "single_article" (direct content), "commodity" (price data),
+# "reddit" (subreddit listings), "google_news" (RSS with search query)
+
+sources:
+  # === JEWELRY INDUSTRY NEWS ===
+  jck_online:
+    name: "JCK Online"
+    url: "https://www.jckonline.com/"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "article, .post, .article"
+      title: "h2 a, h3 a, .entry-title a"
+      link: "h2 a, h3 a, .entry-title a"
+      date: "time, .date, .post-date"
+      summary: ".excerpt, .summary, p"
+
+  national_jeweler:
+    name: "National Jeweler"
+    url: "https://www.nationaljeweler.com/"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "article, .story, .post"
+      title: "h2 a, h3 a, .headline a"
+      link: "h2 a, h3 a, .headline a"
+      date: "time, .date"
+      summary: ".deck, .subhead, .summary"
+
+  rapaport:
+    name: "Rapaport News"
+    url: "https://rapaport.com/news/"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "article, .news-item, .post"
+      title: "h2 a, h3 a, .title a"
+      link: "h2 a, h3 a, .title a"
+      date: "time, .date"
+      summary: ".description, .excerpt p"
+
+  the_jewelry_loupe:
+    name: "The Jewelry Loupe"
+    url: "https://thejewelryloupe.com/"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "article, .post"
+      title: "h2 a, .entry-title a"
+      link: "h2 a, .entry-title a"
+      date: "time, .date, .post-date"
+      summary: ".entry-content p, .excerpt"
+
+  idex_online:
+    name: "IDEX Online"
+    url: "https://www.idexonline.com/"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "tr, .article, .news-item"
+      title: "a"
+      link: "a"
+      date: "td, .date"
+      summary: "td"
+
+  # === FASHION & LUXURY ===
+  business_of_fashion_jewelry:
+    name: "Business of Fashion — Jewelry"
+    url: "https://www.businessoffashion.com/sections/jewelry/"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "article, .article-card"
+      title: "h2 a, h3 a, .article-card__title a"
+      link: "h2 a, h3 a, .article-card__title a"
+      date: "time, .article-card__date"
+      summary: ".article-card__summary, p"
+
+  vogue_business:
+    name: "Vogue Business (free articles)"
+    url: "https://www.voguebusiness.com/fashion/jewellery"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "article, .card"
+      title: "h2 a, h3 a, .card-title a"
+      link: "h2 a, h3 a, .card-title a"
+      date: "time, .date"
+      summary: ".card-description, .excerpt"
+
+  luxury_daily:
+    name: "Luxury Daily"
+    url: "https://www.luxurydaily.com/category/jewelry/"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "article, .post"
+      title: "h2 a, .entry-title a"
+      link: "h2 a, .entry-title a"
+      date: "time, .date"
+      summary: ".entry-summary, .excerpt p"
+
+  # === ETSY INTELLIGENCE ===
+  etsy_seller_handbook:
+    name: "Etsy Seller Handbook"
+    url: "https://www.etsy.com/seller-handbook/"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "article, .article-card, .post"
+      title: "h2 a, h3 a"
+      link: "h2 a, h3 a"
+      date: "time, .date"
+      summary: "p, .excerpt"
+
+  ecommercebytes_etsy:
+    name: "EcommerceBytes — Etsy"
+    url: "https://www.ecommercebytes.com/category/etsy/"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "article, .post, .story"
+      title: "h2 a, .entry-title a"
+      link: "h2 a, .entry-title a"
+      date: "time, .date"
+      summary: ".entry-content p, .excerpt"
+
+  marketplacepulse:
+    name: "Marketplace Pulse — Etsy"
+    url: "https://www.marketplacepulse.com/etsy"
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: "article, .item, .row"
+      title: "h2 a, h3 a, .title a"
+      link: "h2 a, h3 a, .title a"
+      date: "time, .date"
+      summary: "p, .description"
+
+  reddit_etsy_sellers:
+    name: "Reddit r/EtsySellers"
+    url: "https://old.reddit.com/r/EtsySellers/"  # old.reddit avoids JavaScript requirement
+    type: "article_list"
+    enabled: true
+    selectors:
+      article_container: ".thing, .link"
+      title: "a.title"
+      link: "a.title"
+      date: "time, .date, .live-timestamp"
+      summary: ".entry .usertext-body p, .tagline"
+
+  # === COMMODITY PRICES ===
+  kitco:
+    name: "Kitco — Gold/Silver/Platinum"
+    url: "https://www.kitco.com/market/"
+    type: "commodity"
+    enabled: true
+    # No CSS selectors needed — handled by dedicated parser
+
+  # === GOOGLE NEWS RSS (with custom queries) ===
+  google_news_jewelry:
+    name: "Google News — Fine Jewelry"
+    url: "https://news.google.com/rss/search?q=fine+jewelry+high+end+luxury&hl=en-US&gl=US&ceid=US:en"
+    type: "rss"
+    enabled: true
+
+  google_news_etsy:
+    name: "Google News — Etsy Selling"
+    url: "https://news.google.com/rss/search?q=Etsy+selling+fine+jewelry+marketplace&hl=en-US&gl=US&ceid=US:en"
+    type: "rss"
+    enabled: true
+
+  google_news_diamonds:
+    name: "Google News — Diamonds & Precious Gems"
+    url: "https://news.google.com/rss/search?q=diamonds+precious+gemstones+market+price+2024&hl=en-US&gl=US&ceid=US:en"
+    type: "rss"
+    enabled: true
+
+# =============================================================================
+# SCHEDULING
+# =============================================================================
+scheduling:
+  enabled: true
+  # Use cron syntax: minute hour day month weekday
+  # Default: daily at 7:00 AM
+  cron: "0 7 * * *"
+  # Alternative: interval in hours
+  interval_hours: 24
+
+# =============================================================================
+# EMAIL DELIVERY (optional — set smtp_* to send reports via email)
+# =============================================================================
+email:
+  enabled: false
+  smtp_host: ""                             # e.g., "smtp.gmail.com"
+  smtp_port: 587                            # 587 for TLS, 465 for SSL
+  smtp_tls: true
+  smtp_user: ""                             # your email address
+  smtp_password: ""                         # app password (not your regular password)
+  from_address: ""                          # sender address
+  to_addresses:                             # list of recipients
+    - ""                                    # "you@example.com"
