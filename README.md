@@ -282,4 +282,4 @@ brew install pango
 
 ## 📄 License
 
-MIT — Use freely, but responsibly.
+MIT — Use freely, but responsibly.\n\n---\nInitial release.
