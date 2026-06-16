@@ -32,7 +32,7 @@ $(VENV)/bin/activate: requirements.txt
 	$(PIP) install --upgrade pip -q
 	$(PIP) install -r requirements.txt -q
 	@echo "Installing Playwright browsers..."
-	PLAYWRIGHT_BROWSERS_PATH=$(BROWSERS) $(PYTHON) -m playwright install chromium -q
+	PLAYWRIGHT_BROWSERS_PATH=$(BROWSERS) $(PYTHON) -m playwright install chromium
 	@touch $(VENV)/bin/activate
 	@echo "✓ Dependencies installed"
 
