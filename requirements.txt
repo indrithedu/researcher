@@ -42,19 +42,35 @@ markdown>=3.5.0
 pdfkit>=1.0.0
 
 # === Scheduling ===
+huey>=2.5.0
 schedule>=1.2.0
 APScheduler>=3.10.0
 
 # === Data Processing ===
+datasketch>=1.6.0
 pydantic>=2.5.0
 pyyaml>=6.0.1
 python-dateutil>=2.8.0
+scikit-learn
+pandas
+scipy
 
 # === Email ===
 email-validator>=2.1.0
 yagmail>=0.15.0
 
+# === Computer Vision ===
+opencv-python-headless>=4.8.0
+Pillow>=10.0.0
+ImageHash
+
 # === Utilities ===
 rich>=13.7.0
 tenacity>=8.2.0
 tqdm>=4.66.0
+
+# === Natural Language Processing ===
+vaderSentiment>=3.3.2
+rake-nltk>=1.0.6
+sumy>=0.11.0
+nltk>=3.8.1praw

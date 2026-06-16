@@ -12,6 +12,7 @@ import logging
 from datetime import date, datetime
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+from utils.nlp_engine import NLPEngine
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ class ReportGenerator:
         self.config = config
         self.report_dir = config.get("app", {}).get("report_dir", "./reports")
         os.makedirs(self.report_dir, exist_ok=True)
+        self.nlp = NLPEngine()
 
     def generate_html(self, articles: List[Dict[str, Any]],
                       headlines: List[Dict[str, Any]],
@@ -75,27 +77,81 @@ class ReportGenerator:
         if not commodity_rows:
             commodity_rows = "<tr><td colspan='3' class='empty'>No commodity data fetched</td></tr>"
 
-        # Build headlines
+        # Build headlines (Clustered)
         headline_items = ""
-        for i, h in enumerate(headlines[:10], 1):
-            url = h.get("url", "")
-            title = h.get("title", "Untitled")
-            source = h.get("source_name", "")
-            pub_date = h.get("published_date", "")
-            summary = h.get("summary", "")
-            link_tag = f'<a href="{url}" target="_blank">{title}</a>' if url else title
-            headline_items += f"""
-            <div class="headline-item">
-                <div class="headline-number">{i}.</div>
-                <div class="headline-content">
-                    <div class="headline-title">{link_tag}</div>
-                    <div class="headline-meta">
-                        <span class="headline-source">{source}</span>
-                        {f'<span class="headline-date">{pub_date}</span>' if pub_date else ''}
-                    </div>
-                    {f'<div class="headline-summary">{summary}</div>' if summary else ''}
-                </div>
-            </div>"""
+        if headlines:
+            from collections import Counter
+            clusters = self.nlp.cluster_articles(headlines)
+            
+            for cluster_id, cluster_articles in clusters.items():
+                # Represent cluster with the first article's title
+                representative = cluster_articles[0]
+                cluster_title = representative.get("title", f"Cluster {cluster_id}")
+                
+                # Get common keywords for the cluster header
+                all_keywords = []
+                for art in cluster_articles:
+                    all_keywords.extend(art.get("keywords", []))
+                top_k = [k for k, count in Counter(all_keywords).most_common(3)]
+                keyword_str = f" | {', '.join(top_k)}" if top_k else ""
+
+                headline_items += f"""
+                <div class="cluster-header">
+                    <span class="cluster-icon">📂</span> Topic: {cluster_title[:80]}{"..." if len(cluster_title) > 80 else ""} {keyword_str}
+                </div>"""
+
+                for i, h in enumerate(cluster_articles, 1):
+                    url = h.get("url", "")
+                    title = h.get("title", "Untitled")
+                    source = h.get("source_name", "")
+                    pub_date = h.get("published_date", "")
+                    summary = h.get("summary", "")
+                    image_url = h.get("image_url", "")
+                    
+                    # NLP data
+                    sentiment = h.get("sentiment", "Neutral")
+                    sentiment_score = h.get("sentiment_score", 0.0)
+                    keywords = h.get("keywords", [])
+                    
+                    # Vision data
+                    colors = h.get("dominant_colors", [])
+                    sparkle = h.get("sparkle_score", 0.0)
+                    j_type = h.get("jewelry_type", "")
+
+                    sentiment_class = sentiment.lower()
+                    keyword_tags = "".join([f'<span class="keyword-tag">{k}</span>' for k in keywords[:5]])
+                    
+                    color_swatches = "".join([f'<div class="color-swatch" style="background:{c};"></div>' for k, c in enumerate(colors)])
+                    
+                    vision_meta = ""
+                    if j_type or sparkle > 0 or colors:
+                        vision_meta = f"""
+                        <div class="vision-meta">
+                            {f'<span class="jewelry-badge">{j_type}</span>' if j_type else ''}
+                            {f'<span class="sparkle-badge">Sparkle: {int(sparkle*100)}%</span>' if sparkle > 0 else ''}
+                            <div class="color-palette">{color_swatches}</div>
+                        </div>"""
+
+                    link_tag = f'<a href="{url}" target="_blank">{title}</a>' if url else title
+                    
+                    image_html = f'<div class="headline-image"><img src="{image_url}" alt="Article Image"></div>' if image_url else ''
+                    
+                    headline_items += f"""
+                    <div class="headline-item {sentiment_class}">
+                        <div class="headline-number">{i}.</div>
+                        {image_html}
+                        <div class="headline-content">
+                            <div class="headline-title">{link_tag}</div>
+                            <div class="headline-meta">
+                                <span class="headline-source">{source}</span>
+                                {f'<span class="headline-date">{pub_date}</span>' if pub_date else ''}
+                                <span class="sentiment-badge {sentiment_class}">{sentiment} ({sentiment_score:+.2f})</span>
+                            </div>
+                            {f'<div class="headline-summary">{summary}</div>' if summary else ''}
+                            <div class="headline-keywords">{keyword_tags}</div>
+                            {vision_meta}
+                        </div>
+                    </div>"""
 
         if not headline_items:
             headline_items = "<div class='empty-state'>No headlines captured in this run. Check your source config.</div>"
@@ -118,18 +174,29 @@ class ReportGenerator:
         if not etsy_items:
             etsy_items = "<div class='empty-state'>No Etsy intelligence found this run.</div>"
 
-        # Build quick-scan table
+        # Build quick-scan table (Clustered)
         quick_scan_rows = ""
-        for article in articles[:15]:
-            url = article.get("url", "")
-            title = article.get("title", "Untitled")
-            link_tag = f'<a href="{url}" target="_blank">{title[:80]}{"..." if len(title) > 80 else ""}</a>' if url else title[:80]
-            quick_scan_rows += f"""
-            <tr>
-                <td class="qs-source">{article.get("source_name", "")}</td>
-                <td class="qs-date">{article.get("published_date", "")[:10]}</td>
-                <td class="qs-title">{link_tag}</td>
-            </tr>"""
+        if articles:
+            qs_clusters = self.nlp.cluster_articles(articles[:20])
+            for cid, clist in qs_clusters.items():
+                representative = clist[0]
+                cluster_title = representative.get("title", f"Group {cid}")
+                quick_scan_rows += f"""
+                <tr class="qs-group-header">
+                    <td colspan="3" style="background: #16161d; color: #8899bb; font-weight: 700; font-size: 10px; padding: 8px 12px; border-bottom: 1px solid #2a2a4a; text-transform: uppercase;">
+                        📁 Topic: {cluster_title[:90]}{"..." if len(cluster_title) > 90 else ""}
+                    </td>
+                </tr>"""
+                for article in clist:
+                    url = article.get("url", "")
+                    title = article.get("title", "Untitled")
+                    link_tag = f'<a href="{url}" target="_blank">{title[:80]}{"..." if len(title) > 80 else ""}</a>' if url else title[:80]
+                    quick_scan_rows += f"""
+                    <tr>
+                        <td class="qs-source">{article.get("source_name", "")}</td>
+                        <td class="qs-date">{article.get("published_date", "")[:10]}</td>
+                        <td class="qs-title">{link_tag}</td>
+                    </tr>"""
 
         if not quick_scan_rows:
             quick_scan_rows = "<tr><td colspan='3' class='empty'>No articles captured</td></tr>"
@@ -138,6 +205,29 @@ class ReportGenerator:
         succeeded = session_summary.get("sources_succeeded", 0)
         failed = session_summary.get("sources_failed", 0)
         total_articles = session_summary.get("total_articles", len(articles))
+        volatility_alerts = session_summary.get("volatility_alerts", [])
+
+        # Build Volatility Alerts HTML
+        alerts_html = ""
+        if volatility_alerts:
+            alerts_html = """
+            <div class="section alert-section">
+                <div class="section-header">
+                    <span class="icon">⚠️</span>
+                    <h2 style="color: #ff4d4d;">Market Volatility Alerts</h2>
+                </div>
+                <div class="alerts-container">"""
+            for alert in volatility_alerts:
+                alert_class = "surge" if alert["type"] == "Surge" else "crash"
+                alerts_html += f"""
+                    <div class="alert-item {alert_class}">
+                        <div class="alert-title">{alert['commodity'].upper()} {alert['type']}</div>
+                        <div class="alert-desc">
+                            Price is currently <strong>${alert['price']:,.2f}</strong>. 
+                            The Z-Score is <strong>{alert['z_score']:+.2f}</strong>, indicating a significant statistical anomaly.
+                        </div>
+                    </div>"""
+            alerts_html += "</div></div>"
 
         # Determine theme (light/dark) based on time of day or simply default to dark
         html = f"""<!DOCTYPE html>
@@ -261,14 +351,85 @@ class ReportGenerator:
             font-size: 12px;
         }}
         .headline-source {{ color: #7c9cff; }}
-        .headline-date {{ color: #888; }}
-        .headline-summary {{
+        .headline-date { color: #888; }
+        .headline-summary {
             margin-top: 8px;
             color: #aaa;
             font-size: 13px;
-        }}
+        }
+
+        /* New Enrichment Styles */
+        .sentiment-badge {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        .sentiment-badge.positive { background: #1b4332; color: #74c69d; }
+        .sentiment-badge.negative { background: #5a181d; color: #ff878d; }
+        .sentiment-badge.neutral { background: #2b2d42; color: #8d99ae; }
+
+        .headline-keywords {
+            margin-top: 10px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .keyword-tag {
+            background: #2a2a3a;
+            color: #8899bb;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        .vision-meta {
+            margin-top: 12px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding-top: 8px;
+            border-top: 1px solid #2a2a3a;
+        }
+        .jewelry-badge {
+            color: #7c9cff;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .sparkle-badge {
+            color: #ffd700;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .color-palette {
+            display: flex;
+            gap: 4px;
+        }
+        .color-swatch {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 1px solid #444;
+        }
+
+        .headline-image {
+            width: 120px;
+            height: 80px;
+            flex-shrink: 0;
+            border-radius: 4px;
+            overflow: hidden;
+            background: #1c1c26;
+            border: 1px solid #2a2a3a;
+        }
+        .headline-image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
 
         /* ===== Commodity Prices ===== */
+
         .commodity-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -325,15 +486,48 @@ class ReportGenerator:
             border-bottom: 1px solid #222;
         }}
         .quick-scan tr:hover {{ background: #1c1c2a; }}
-        .qs-source {{ color: #7c9cff; font-weight: 500; }}
-        .qs-date {{ color: #888; white-space: nowrap; }}
-        .empty-state {{
+        .qs-source { color: #7c9cff; font-weight: 500; }
+        .qs-date { color: #888; white-space: nowrap; }
+
+        .cluster-header {
+            background: #1c1c2b;
+            padding: 12px 16px;
+            margin: 24px 0 12px 0;
+            border-radius: 6px;
+            border-left: 4px solid #7c9cff;
+            color: #7c9cff;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .cluster-icon { font-size: 18px; }
+
+        .empty-state {
             padding: 32px;
             text-align: center;
             color: #666;
             font-style: italic;
-        }}
+        }
+
         .empty {{ color: #666; text-align: center; padding: 20px; }}
+
+        /* ===== Volatility Alerts ===== */
+        .alert-section { margin-top: 20px; }
+        .alerts-container { display: flex; flex-direction: column; gap: 12px; }
+        .alert-item {
+            padding: 16px;
+            border-radius: 8px;
+            border-left: 5px solid;
+            background: #1c1c26;
+        }
+        .alert-item.surge { border-left-color: #4caf50; }
+        .alert-item.crash { border-left-color: #f44336; }
+        .alert-title { font-weight: 700; font-size: 16px; margin-bottom: 4px; }
+        .alert-desc { font-size: 14px; color: #ccc; }
 
         /* ===== Footer ===== */
         .footer {{
@@ -404,6 +598,7 @@ class ReportGenerator:
 
     <!-- Content -->
     <div class="content">
+        {alerts_html}
 
         <!-- Commodity Prices -->
         <div class="section">

@@ -1,0 +1,27 @@
+.stTabs [data-baseweb="tab-list"] { gap: 8px; }
+.stTabs [data-baseweb="tab"] {
+    background: #F8F9FA;
+    border-radius: 4px 4px 0 0;
+    padding: 8px 16px;
+    color: #4B5563;
+}
+.stTabs [aria-selected="true"] {
+    background: #E5E7EB !important;
+    color: #1F2937 !important;
+}
+div[data-testid="metric-container"] {
+    background: #FFFFFF;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    padding: 16px;
+}
+.stAlert { border-radius: 8px; }
+.stButton button {
+    background: #FFFFFF;
+    border: 1px solid #D1D5DB;
+    color: #374151;
+    border-radius: 6px;
+}
+.stButton button:hover { background: #F3F4F6; border-color: #9CA3AF; }
+.stButton button[kind="primary"] { background: #2A2A4A; color: #FFFFFF; border: none; }
+.stButton button[kind="primary"]:hover { background: #1F1F3D; }

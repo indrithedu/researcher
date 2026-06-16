@@ -70,10 +70,12 @@ sources:
     url: "https://www.jckonline.com/"
     type: "article_list"
     enabled: true
+    analyze_images: true                   # Enable local computer vision analysis
     selectors:
       article_container: "article, .post, .article"
       title: "h2 a, h3 a, .entry-title a"
       link: "h2 a, h3 a, .entry-title a"
+      image: ".entry-content img, .post-thumbnail img" # Target images for vision
       date: "time, .date, .post-date"
       summary: ".excerpt, .summary, p"
 
@@ -82,10 +84,12 @@ sources:
     url: "https://www.nationaljeweler.com/"
     type: "article_list"
     enabled: true
+    analyze_images: true
     selectors:
       article_container: "article, .story, .post"
       title: "h2 a, h3 a, .headline a"
       link: "h2 a, h3 a, .headline a"
+      image: "img"
       date: "time, .date"
       summary: ".deck, .subhead, .summary"
 

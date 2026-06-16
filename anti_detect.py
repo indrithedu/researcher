@@ -53,6 +53,7 @@ from pathlib import Path
 
 import yaml
 import httpx
+import asyncio
 from bs4 import BeautifulSoup
 
 logger = logging.getLogger(__name__)
@@ -329,6 +330,22 @@ class AntiDetectClient:
         logger.debug(f"Backoff attempt {attempt}: waiting {delay:.1f}s...")
         time.sleep(delay)
 
+    async def _async_random_delay(self):
+        """Wait a random amount of time between requests to mimic human browsing."""
+        if not self.enabled:
+            return
+        delay = random.uniform(self.delay_min, self.delay_max)
+        logger.debug(f"Async Delaying {delay:.1f}s...")
+        await asyncio.sleep(delay)
+
+    async def _async_backoff_delay(self, attempt: int):
+        """Exponential backoff with jitter when a request fails."""
+        base = self.backoff_base ** attempt
+        jitter = random.uniform(0, 1) * base
+        delay = min(base + jitter, self.backoff_max)
+        logger.debug(f"Async Backoff attempt {attempt}: waiting {delay:.1f}s...")
+        await asyncio.sleep(delay)
+
     # -----------------------------------------------------------------------
     # HTTP Request Methods
     # -----------------------------------------------------------------------
@@ -431,9 +448,107 @@ class AntiDetectClient:
         logger.error(f"All {self.max_retries + 1} attempts failed for {url}: {last_error}")
         return None, 0, {}
 
+    async def async_request(self, url: str, method: str = "GET", **kwargs) -> Tuple[Optional[str], int, Dict[str, str]]:
+        """
+        Make an HTTP request with full anti-detection measures (Asynchronous).
+
+        Returns: (html_content, status_code, response_headers)
+        """
+        if not self.enabled:
+            # No stealth — plain request
+            try:
+                async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+                    resp = await client.request(method, url, **kwargs)
+                return resp.text, resp.status_code, dict(resp.headers)
+            except Exception as e:
+                logger.error(f"Plain async request failed for {url}: {e}")
+                return None, 0, {}
+
+        last_error = None
+
+        for attempt in range(self.max_retries + 1):
+            proxy = self._select_proxy()
+            proxy_key = self._proxy_key(proxy)
+            ua = random.choice(USER_AGENT_POOL)
+            headers = build_headers(ua, referer="")
+
+            # Build client with proxy
+            client_kwargs = {
+                "follow_redirects": True,
+                "timeout": 45,
+                "headers": headers,
+            }
+
+            # Extract domain for cookie management
+            parsed_url = urlparse(url)
+            domain = parsed_url.netloc
+
+            # Add cookies for this domain/proxy if they exist
+            saved_cookies = self._get_cookies_for_domain(proxy_key, domain)
+            if saved_cookies:
+                client_kwargs["cookies"] = saved_cookies
+
+            if proxy:
+                client_kwargs["proxy"] = proxy
+                logger.debug(f"[Async Attempt {attempt+1}] Using proxy {proxy[:30]}... for {domain}")
+
+            try:
+                async with httpx.AsyncClient(**client_kwargs) as client:
+                    if method == "GET":
+                        resp = await client.get(url, **{k: v for k, v in kwargs.items() if k not in ['headers', 'cookies']})
+                    elif method == "POST":
+                        resp = await client.post(url, **kwargs)
+                    else:
+                        resp = await client.request(method, url, **kwargs)
+
+                # Check if blocked
+                status = resp.status_code
+
+                if status in (403, 429, 503):
+                    logger.warning(f"[{status}] Blocked on {url} (async attempt {attempt+1})")
+
+                    if resp.headers.get("set-cookie"):
+                        self._parse_and_save_cookies(proxy_key, domain, resp.headers.get("set-cookie", ""))
+
+                    if attempt < self.max_retries:
+                        await self._async_backoff_delay(attempt)
+                        continue
+
+                elif status == 200:
+                    if resp.headers.get("set-cookie"):
+                        self._parse_and_save_cookies(proxy_key, domain, resp.headers.get("set-cookie", ""))
+
+                    self._save_cookies()
+                    await self._async_random_delay()
+                    return resp.text, status, dict(resp.headers)
+
+                else:
+                    if resp.headers.get("set-cookie"):
+                        self._parse_and_save_cookies(proxy_key, domain, resp.headers.get("set-cookie", ""))
+                    if attempt < self.max_retries:
+                        await self._async_backoff_delay(attempt)
+                        continue
+                    return resp.text, status, dict(resp.headers)
+
+            except Exception as e:
+                last_error = str(e)
+                logger.debug(f"Async request failed for {url} (attempt {attempt+1}): {e}")
+                if attempt < self.max_retries:
+                    await self._async_backoff_delay(attempt)
+                continue
+
+        # All retries exhausted
+        logger.error(f"All {self.max_retries + 1} async attempts failed for {url}: {last_error}")
+        return None, 0, {}
+
     def get(self, url: str, **kwargs) -> Tuple[Optional[str], int]:
         """Convenience method for GET requests."""
         html, status, _ = self.request(url, "GET", **kwargs)
+        return html, status
+
+    async def async_get(self, url: str, **kwargs) -> Tuple[Optional[str], int]:
+        """Convenience method for async GET requests."""
+        html, status, _ = await self.async_request(url, "GET", **kwargs)
         return html, status
 
     def get_json(self, url: str, **kwargs) -> Optional[Dict]:
@@ -444,6 +559,16 @@ class AntiDetectClient:
                 return json.loads(html)
             except json.JSONDecodeError:
                 logger.warning(f"Failed to parse JSON from {url}")
+        return None
+
+    async def async_get_json(self, url: str, **kwargs) -> Optional[Dict]:
+        """Make an async request and parse JSON response."""
+        html, status = await self.async_get(url, **kwargs)
+        if html and status == 200:
+            try:
+                return json.loads(html)
+            except json.JSONDecodeError:
+                logger.warning(f"Failed to parse async JSON from {url}")
         return None
 
     def _parse_and_save_cookies(self, proxy_key: str, domain: str, set_cookie_header: str):

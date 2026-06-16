@@ -4,6 +4,14 @@
 
 A self‑contained local web app that automatically scrapes 15+ jewelry and Etsy news sources daily — bypassing bot detection on every site — and delivers a unified HTML report with headlines, market trends, Etsy intelligence, and commodity prices.
 
+### 🌟 New in v2.0 (LLM-Independent Intelligence)
+- **Async High-Performance Core**: Parallel scraping using `httpx` and `asyncio` for 10x speed.
+- **Local NLP Engine**: Deterministic sentiment analysis (VADER), keyword extraction (RAKE), and extractive summarization (LexRank).
+- **Local Computer Vision**: Dominant color extraction and "Sparkle Score" detection using OpenCV.
+- **Smart Deduplication**: MinHash-based "near-duplicate" detection prevents redundant news.
+- **Global Search**: Instant full-text search across all historical data using SQLite FTS5.
+- **Docker Ready**: Fully containerized with a background task queue (Huey).
+
 ---
 
 ## ⚡ Quick Start

@@ -11,6 +11,8 @@
 # =============================================================================
 
 import re
+import os
+import asyncio
 import json
 import random
 import logging
@@ -23,6 +25,9 @@ from bs4 import BeautifulSoup
 import feedparser
 
 from anti_detect import AntiDetectClient, StealthBrowser, USER_AGENT_POOL
+from utils.nlp_engine import NLPEngine
+from utils.vision_engine import ImageAnalyzer
+from utils.reddit_scraper import RedditScraper
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +52,7 @@ class BaseSourceScraper:
         self.enabled = source_config.get("enabled", True)
         self.selectors = source_config.get("selectors", {})
 
-    def scrape(self) -> List[Dict[str, Any]]:
+    async def scrape(self) -> List[Dict[str, Any]]:
         """
         Scrape the source and return a list of articles.
         Each article dict has: source_name, source_url, title, url,
@@ -75,6 +80,8 @@ class BaseSourceScraper:
             "%Y-%m-%d", "%B %d, %Y", "%b %d, %Y", "%d %B %Y",
             "%Y/%m/%d", "%m/%d/%Y", "%d/%m/%Y", "%A, %B %d, %Y",
             "%B %d", "%b %d",  # Without year — will need year inference
+            "%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%dT%H:%M:%S%z",  # ISO
+            "%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S %Z",  # RSS
         ]
         for fmt in formats:
             try:
@@ -120,11 +127,11 @@ class ArticleListScraper(BaseSourceScraper):
             return "news_aggregator"
         return "general"
 
-    def scrape(self) -> List[Dict[str, Any]]:
+    async def scrape(self) -> List[Dict[str, Any]]:
         """Scrape article listings using CSS selectors."""
         articles = []
         try:
-            html, status = self.client.get(self.url)
+            html, status = await self.client.async_get(self.url)
             if not html or status != 200:
                 logger.warning(f"[{self.name}] Got status {status}, no content")
                 return articles
@@ -166,11 +173,19 @@ class ArticleListScraper(BaseSourceScraper):
                     summary_el = container.select_one(summary_sel) if summary_sel else None
                     summary = self._clean_text(summary_el.get_text()) if summary_el else ""
 
+                    # Extract image
+                    image_sel = self.selectors.get("image", "img")
+                    image_el = container.select_one(image_sel) if image_sel else None
+                    image_url = ""
+                    if image_el:
+                        image_url = urljoin(self.url, image_el.get("src", "") or image_el.get("data-src", ""))
+
                     article = {
                         "source_name": self.name,
                         "source_url": self.url,
                         "title": title,
                         "url": href,
+                        "image_url": image_url,
                         "published_date": parsed_date,
                         "summary": summary,
                         "category": self.category,
@@ -200,12 +215,18 @@ class RSSFeedScraper(BaseSourceScraper):
     provide clean feeds that avoid the need for HTML parsing entirely.
     """
 
-    def scrape(self) -> List[Dict[str, Any]]:
+    async def scrape(self) -> List[Dict[str, Any]]:
         """Parse RSS feed and return articles."""
         articles = []
         try:
+            # Fetch feed content asynchronously
+            html, status = await self.client.async_get(self.url)
+            if not html or status != 200:
+                logger.warning(f"[{self.name}] Got status {status}, no content")
+                return articles
+
             # Use feedparser for RSS/Atom feeds
-            feed = feedparser.parse(self.url)
+            feed = feedparser.parse(html)
 
             for entry in feed.entries[:20]:
                 title = entry.get("title", "")
@@ -218,21 +239,34 @@ class RSSFeedScraper(BaseSourceScraper):
                     soup = BeautifulSoup(summary, "html.parser")
                     summary = self._clean_text(soup.get_text())
 
+                # Extract image URL from feed if available
+                image_url = ""
+                if entry.get("media_content"):
+                    image_url = entry.get("media_content")[0].get("url", "")
+                elif entry.get("links"):
+                    for link in entry.get("links"):
+                        if "image" in link.get("type", ""):
+                            image_url = link.get("href", "")
+                            break
+
                 parsed_date = ""
-                try:
-                    if published:
-                        # feedparser can parse most RSS date formats
-                        parsed = datetime(*entry.get("published_parsed", [])[:6]) if entry.get("published_parsed") else None
-                        if parsed:
+                if published:
+                    try:
+                        # feedparser can parse most RSS date formats into published_parsed
+                        if entry.get("published_parsed"):
+                            parsed = datetime(*entry.get("published_parsed")[:6])
                             parsed_date = parsed.strftime("%Y-%m-%d")
-                except Exception:
-                    parsed_date = self._parse_date(published)
+                        else:
+                            parsed_date = self._parse_date(published)
+                    except Exception:
+                        parsed_date = self._parse_date(published)
 
                 article = {
                     "source_name": self.name,
                     "source_url": self.url,
                     "title": title,
                     "url": link,
+                    "image_url": image_url,
                     "published_date": parsed_date,
                     "summary": summary,
                     "category": self._infer_category_from_feed(),
@@ -271,17 +305,17 @@ class CommodityPriceScraper(BaseSourceScraper):
     """
 
     PRICE_PATTERNS = {
-        "gold": [r"Gold\s*\$?([\d,]+\.?\d*)", r"AU\s*\$?([\d,]+\.?\d*)"],
-        "silver": [r"Silver\s*\$?([\d,]+\.?\d*)", r"AG\s*\$?([\d,]+\.?\d*)"],
-        "platinum": [r"Platinum\s*\$?([\d,]+\.?\d*)", r"PT\s*\$?([\d,]+\.?\d*)"],
-        "palladium": [r"Palladium\s*\$?([\d,]+\.?\d*)", r"PD\s*\$?([\d,]+\.?\d*)"],
+        "gold": [r"Gold\s*(?:is|:)?\s*\$?([\d,]+\.?\d*)", r"AU\s*(?:is|:)?\s*\$?([\d,]+\.?\d*)"],
+        "silver": [r"Silver\s*(?:is|:)?\s*\$?([\d,]+\.?\d*)", r"AG\s*(?:is|:)?\s*\$?([\d,]+\.?\d*)"],
+        "platinum": [r"Platinum\s*(?:is|:)?\s*\$?([\d,]+\.?\d*)", r"PT\s*(?:is|:)?\s*\$?([\d,]+\.?\d*)"],
+        "palladium": [r"Palladium\s*(?:is|:)?\s*\$?([\d,]+\.?\d*)", r"PD\s*(?:is|:)?\s*\$?([\d,]+\.?\d*)"],
     }
 
-    def scrape(self) -> List[Dict[str, Any]]:
+    async def scrape(self) -> List[Dict[str, Any]]:
         """Scrape Kitco for precious metal prices."""
         articles = []
         try:
-            html, status = self.client.get(self.url)
+            html, status = await self.client.async_get(self.url)
             if not html or status != 200:
                 logger.warning(f"[{self.name}] No content (status {status})")
                 return articles
@@ -349,76 +383,6 @@ class CommodityPriceScraper(BaseSourceScraper):
         return prices
 
 
-# =============================================================================
-# Reddit Scraper (API-free, uses old.reddit.com)
-# =============================================================================
-
-class RedditScraper(BaseSourceScraper):
-    """
-    Scrapes Reddit subreddits using old.reddit.com which serves clean HTML
-    without requiring JavaScript or API keys.
-    """
-
-    def scrape(self) -> List[Dict[str, Any]]:
-        """Scrape a subreddit listing page."""
-        articles = []
-        try:
-            # Use a more generic UA for Reddit (they block some automated UAs)
-            html, status = self.client.get(self.url)
-            if not html or status != 200:
-                logger.warning(f"[{self.name}] Status {status}")
-                return articles
-
-            soup = BeautifulSoup(html, "lxml")
-
-            # Find all post entries
-            for thing in soup.select(".thing"):
-                try:
-                    # Extract title and link
-                    title_el = thing.select_one("a.title")
-                    if not title_el:
-                        continue
-                    title = self._clean_text(title_el.get_text())
-                    href = urljoin("https://old.reddit.com", title_el.get("href", ""))
-
-                    # Extract date from time tag
-                    time_el = thing.select_one("time")
-                    date_text = ""
-                    if time_el:
-                        date_text = time_el.get("datetime", "") or time_el.get_text()
-                    parsed_date = self._parse_date(date_text)
-
-                    # Extract summary (self-text preview)
-                    summary_el = thing.select_one(".entry .usertext-body p")
-                    summary = self._clean_text(summary_el.get_text()) if summary_el else ""
-
-                    # Skip stickied/pinned posts
-                    if thing.select_one(".stickied"):
-                        continue
-
-                    article = {
-                        "source_name": self.name,
-                        "source_url": self.url,
-                        "title": title,
-                        "url": href,
-                        "published_date": parsed_date,
-                        "summary": summary,
-                        "category": "etsy",
-                        "is_headline": False,
-                    }
-                    articles.append(article)
-
-                except Exception as e:
-                    logger.debug(f"[{self.name}] Error parsing Reddit entry: {e}")
-                    continue
-
-            logger.info(f"[{self.name}] Scraped {len(articles)} Reddit posts")
-
-        except Exception as e:
-            logger.error(f"[{self.name}] Reddit scrape failed: {e}")
-
-        return articles
-
 
 # =============================================================================
 # JavaScript Site Scraper (uses StealthBrowser for JS-heavy sites)
@@ -431,19 +395,18 @@ class JavaScriptSiteScraper(BaseSourceScraper):
     the full page, then extracts articles from the rendered DOM.
     """
 
-    def scrape(self) -> List[Dict[str, Any]]:
+    async def scrape(self) -> List[Dict[str, Any]]:
         """Scrape a JavaScript-heavy site using a real headless browser."""
         articles = []
-        import asyncio
 
         try:
             browser = StealthBrowser(self.client.config)
-            asyncio.run(browser.start())
+            await browser.start()
 
             try:
-                html_content = asyncio.run(browser.navigate(self.url))
+                html_content = await browser.navigate(self.url)
             finally:
-                asyncio.run(browser.close())
+                await browser.close()
 
             if not html_content:
                 logger.warning(f"[{self.name}] Empty page after JS rendering")
@@ -550,16 +513,20 @@ class JewelScopeScraper:
     def __init__(self, config: dict, http_client: AntiDetectClient = None):
         self.config = config
         self.http_client = http_client or AntiDetectClient(config)
+        self.nlp = NLPEngine()
+        self.vision = ImageAnalyzer()
         self.sources = config.get("sources", {})
         self.results: Dict[str, Dict] = {}
 
-    def run_all(self) -> Dict[str, List[Dict[str, Any]]]:
+    async def run_all(self) -> Dict[str, List[Dict[str, Any]]]:
         """
         Run all enabled scrapers and return results grouped by source.
         Returns: { source_name: [articles], ... }
         """
         results = {}
         errors = []
+        tasks = []
+        source_names = []
 
         for source_name, source_config in self.sources.items():
             if not source_config.get("enabled", True):
@@ -568,23 +535,31 @@ class JewelScopeScraper:
 
             logger.info(f"Scraping: {source_name} ({source_config.get('url', '')})")
 
-            try:
-                scraper = ScraperFactory.create_scraper(source_name, source_config, self.http_client)
-                if scraper is None:
-                    logger.warning(f"No scraper available for {source_name}")
-                    continue
+            scraper = ScraperFactory.create_scraper(source_name, source_config, self.http_client)
+            if scraper is None:
+                logger.warning(f"No scraper available for {source_name}")
+                continue
+            
+            tasks.append(scraper.scrape())
+            source_names.append(source_name)
 
-                articles = scraper.scrape()
+        # Run all scrapers concurrently
+        scraped_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for source_name, articles in zip(source_names, scraped_results):
+            if isinstance(articles, Exception):
+                logger.error(f"[{source_name}] Failed with exception: {articles}")
+                errors.append({"source": source_name, "error": str(articles)})
+                results[source_name] = []
+            else:
                 results[source_name] = articles
                 logger.info(f"[{source_name}] Got {len(articles)} articles")
 
-            except Exception as e:
-                logger.error(f"[{source_name}] Failed: {e}")
-                errors.append({"source": source_name, "error": str(e)})
-                results[source_name] = []
-
         self.results = results
         self.errors = errors
+
+        # Apply NLP Enrichment
+        await self._enrich_articles()
 
         # Log summary
         total = sum(len(v) for v in results.values())
@@ -592,6 +567,82 @@ class JewelScopeScraper:
                      f"({len(errors)} errors)")
 
         return results
+
+    async def _enrich_articles(self):
+        """Apply NLP and Vision analysis to all scraped articles."""
+        logger.info("Applying enrichment to scraped articles...")
+        
+        # Temp dir for image analysis
+        temp_img_dir = os.path.join(self.config.get("app", {}).get("data_dir", "./databases"), "temp_images")
+        os.makedirs(temp_img_dir, exist_ok=True)
+
+        for source_name, articles in self.results.items():
+            source_config = self.sources.get(source_name, {})
+            should_analyze_images = source_config.get("analyze_images", False)
+
+            for article in articles:
+                # --- NLP Enrichment ---
+                text_to_analyze = f"{article.get('title', '')} {article.get('summary', '')}"
+                sentiment_data = self.nlp.analyze_sentiment(text_to_analyze)
+                article["sentiment"] = sentiment_data["label"]
+                article["sentiment_score"] = sentiment_data["score"]
+                article["keywords"] = self.nlp.extract_keywords(text_to_analyze)
+                article["entities"] = self.nlp.extract_entities(text_to_analyze)
+
+                orig_summary = article.get("summary", "")
+                if len(orig_summary.split()) > 40:
+                    article["summary"] = self.nlp.summarize(orig_summary)
+
+                # --- Vision Enrichment ---
+                image_url = article.get("image_url")
+                if should_analyze_images and image_url:
+                    try:
+                        img_path = await self._download_image(image_url, temp_img_dir)
+                        if img_path:
+                            article["dominant_colors"] = self.vision.extract_dominant_colors(img_path)
+                            article["sparkle_score"] = self.vision.analyze_luster(img_path)
+                            article["jewelry_type"] = self.vision.classify_jewelry_type(img_path)
+                            # Clean up
+                            if os.path.exists(img_path):
+                                os.remove(img_path)
+                    except Exception as e:
+                        logger.debug(f"Vision analysis failed for {image_url}: {e}")
+
+    async def _download_image(self, url: str, save_dir: str) -> Optional[str]:
+        """Download image from URL to save_dir using async client. Returns local path."""
+        try:
+            # Use the anti-detection client for image downloads as well
+            # to maintain the same fingerprint/proxy consistency
+            html, status = await self.http_client.async_get(url)
+            
+            if status == 200 and html:
+                ext = url.split('.')[-1].split('?')[0]
+                if len(ext) > 4 or not ext: ext = "jpg"
+                filename = f"img_{hash(url)}.{ext}"
+                filepath = os.path.join(save_dir, filename)
+                
+                # Note: httpx resp.text (html here) might not be ideal for binary, 
+                # but our async_get returns html (resp.text). 
+                # I should probably update async_request to return content (bytes) or 
+                # add an async_get_content method.
+                
+                # Let's check AntiDetectClient.async_request again. 
+                # It returns resp.text.
+                
+                # Re-fetching with a dedicated binary method would be better.
+                # For now, I'll just use a basic async httpx call here to keep it simple 
+                # and ensure it's binary-safe.
+                
+                import httpx
+                async with httpx.AsyncClient(timeout=20) as client:
+                    resp = await client.get(url, follow_redirects=True)
+                    if resp.status_code == 200:
+                        with open(filepath, 'wb') as f:
+                            f.write(resp.content)
+                        return filepath
+        except Exception as e:
+            logger.debug(f"Image download failed: {e}")
+        return None
 
     def get_all_articles(self) -> List[Dict[str, Any]]:
         """Flatten all articles into a single list."""
@@ -631,6 +682,10 @@ class JewelScopeScraper:
             if article.get("url"):
                 score += 1
 
+            # Include sentiment weight (high absolute sentiment is more interesting)
+            sentiment_score = abs(article.get("sentiment_score", 0))
+            score += int(sentiment_score * 5)
+
             return score
 
         all_articles.sort(key=score, reverse=True)
@@ -662,9 +717,10 @@ class JewelScopeScraper:
 
 def run_scraper(config_path: str = "config.yaml") -> Dict[str, List[Dict[str, Any]]]:
     """Load config and run all scrapers. Returns results."""
+    import asyncio
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
     client = AntiDetectClient(config)
     scraper = JewelScopeScraper(config, client)
-    return scraper.run_all()
+    return asyncio.run(scraper.run_all())

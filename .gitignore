@@ -26,9 +26,12 @@ browsers/
 
 # JewelScope specific
 databases/*.db
+databases/*.db-*
 reports/*.html
 reports/*.pdf
 sessions/
+.gemini/
+.streamlit/
 
 # OS
 .DS_Store

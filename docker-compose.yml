@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: jewelscope-app
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./databases:/app/databases
+      - ./reports:/app/reports
+      - ./scraper_sources:/app/scraper_sources
+    restart: always
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  worker:
+    build: .
+    container_name: jewelscope-worker
+    command: huey_consumer worker.huey
+    volumes:
+      - ./databases:/app/databases
+      - ./reports:/app/reports
+      - ./scraper_sources:/app/scraper_sources
+    restart: always
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - app
