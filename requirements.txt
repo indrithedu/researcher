@@ -58,3 +58,7 @@ yagmail>=0.15.0
 rich>=13.7.0
 tenacity>=8.2.0
 tqdm>=4.66.0
+pytest-asyncio>=0.21.0
+
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
