@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 # collected from actual browser traffic.
 # ---------------------------------------------------------------------------
 
-USER_AGENT_POOL = [
+USER_AGENT_POOL = list(dict.fromkeys([
     # Chrome 120+ on Windows
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
@@ -128,7 +128,7 @@ USER_AGENT_POOL = [
     "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
     "Mozilla/5.0 (X11; Fedora; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:123.0) Gecko/20100101 Firefox/123.0",
-]
+]))
 
 # ---------------------------------------------------------------------------
 # Browser-like headers template

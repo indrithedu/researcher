@@ -5,7 +5,7 @@ services:
     build: .
     container_name: jewelscope-app
     ports:
-      - "8501:8501"
+      - "3000:3000"
     volumes:
       - ./databases:/app/databases
       - ./reports:/app/reports
