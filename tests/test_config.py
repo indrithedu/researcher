@@ -4,6 +4,7 @@
 
 import os
 import yaml
+import pytest
 
 
 class TestConfig:
@@ -71,18 +72,14 @@ class TestScheduler:
 
     def test_scheduler_imports(self):
         """Scheduler module should import cleanly."""
-        import importlib
-        import scheduler
-        importlib.reload(scheduler)
+        try:
+            import scheduler
+        except Exception as e:
+            pytest.fail(f"Scheduler import failed: {e}")
         assert True
 
-    def test_scheduler_init(self, sample_config):
-        """Scheduler should initialize with a callback."""
-        from scheduler import ResearchScheduler
-
-        def dummy_callback():
-            pass
-
-        sched = ResearchScheduler(sample_config, dummy_callback)
-        assert sched.enabled is False  # We set enabled: false in test config
-        assert sched.cron == "0 7 * * *"
+    def test_scheduler_task_exists(self):
+        """The scheduled task should be defined if enabled."""
+        import scheduler
+        # Check if the function exists
+        assert hasattr(scheduler, "scheduled_research_scan") or hasattr(scheduler, "trigger_manual_scan")

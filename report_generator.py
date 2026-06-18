@@ -351,69 +351,69 @@ class ReportGenerator:
             font-size: 12px;
         }}
         .headline-source {{ color: #7c9cff; }}
-        .headline-date { color: #888; }
-        .headline-summary {
+        .headline-date {{ color: #888; }}
+        .headline-summary {{
             margin-top: 8px;
             color: #aaa;
             font-size: 13px;
-        }
+        }}
 
         /* New Enrichment Styles */
-        .sentiment-badge {
+        .sentiment-badge {{
             padding: 2px 6px;
             border-radius: 4px;
             font-size: 10px;
             font-weight: 700;
             text-transform: uppercase;
-        }
-        .sentiment-badge.positive { background: #1b4332; color: #74c69d; }
-        .sentiment-badge.negative { background: #5a181d; color: #ff878d; }
-        .sentiment-badge.neutral { background: #2b2d42; color: #8d99ae; }
+        }}
+        .sentiment-badge.positive {{ background: #1b4332; color: #74c69d; }}
+        .sentiment-badge.negative {{ background: #5a181d; color: #ff878d; }}
+        .sentiment-badge.neutral {{ background: #2b2d42; color: #8d99ae; }}
 
-        .headline-keywords {
+        .headline-keywords {{
             margin-top: 10px;
             display: flex;
             flex-wrap: wrap;
             gap: 6px;
-        }
-        .keyword-tag {
+        }}
+        .keyword-tag {{
             background: #2a2a3a;
             color: #8899bb;
             padding: 2px 8px;
             border-radius: 4px;
             font-size: 11px;
-        }
+        }}
 
-        .vision-meta {
+        .vision-meta {{
             margin-top: 12px;
             display: flex;
             align-items: center;
             gap: 16px;
             padding-top: 8px;
             border-top: 1px solid #2a2a3a;
-        }
-        .jewelry-badge {
+        }}
+        .jewelry-badge {{
             color: #7c9cff;
             font-size: 12px;
             font-weight: 600;
-        }
-        .sparkle-badge {
+        }}
+        .sparkle-badge {{
             color: #ffd700;
             font-size: 12px;
             font-weight: 600;
-        }
-        .color-palette {
+        }}
+        .color-palette {{
             display: flex;
             gap: 4px;
-        }
-        .color-swatch {
+        }}
+        .color-swatch {{
             width: 14px;
             height: 14px;
             border-radius: 50%;
             border: 1px solid #444;
-        }
+        }}
 
-        .headline-image {
+        .headline-image {{
             width: 120px;
             height: 80px;
             flex-shrink: 0;
@@ -421,12 +421,12 @@ class ReportGenerator:
             overflow: hidden;
             background: #1c1c26;
             border: 1px solid #2a2a3a;
-        }
-        .headline-image img {
+        }}
+        .headline-image img {{
             width: 100%;
             height: 100%;
             object-fit: cover;
-        }
+        }}
 
         /* ===== Commodity Prices ===== */
 
@@ -486,10 +486,10 @@ class ReportGenerator:
             border-bottom: 1px solid #222;
         }}
         .quick-scan tr:hover {{ background: #1c1c2a; }}
-        .qs-source { color: #7c9cff; font-weight: 500; }
-        .qs-date { color: #888; white-space: nowrap; }
+        .qs-source {{ color: #7c9cff; font-weight: 500; }}
+        .qs-date {{ color: #888; white-space: nowrap; }}
 
-        .cluster-header {
+        .cluster-header {{
             background: #1c1c2b;
             padding: 12px 16px;
             margin: 24px 0 12px 0;
@@ -503,31 +503,31 @@ class ReportGenerator:
             display: flex;
             align-items: center;
             gap: 10px;
-        }
-        .cluster-icon { font-size: 18px; }
+        }}
+        .cluster-icon {{ font-size: 18px; }}
 
-        .empty-state {
+        .empty-state {{
             padding: 32px;
             text-align: center;
             color: #666;
             font-style: italic;
-        }
+        }}
 
         .empty {{ color: #666; text-align: center; padding: 20px; }}
 
         /* ===== Volatility Alerts ===== */
-        .alert-section { margin-top: 20px; }
-        .alerts-container { display: flex; flex-direction: column; gap: 12px; }
-        .alert-item {
+        .alert-section {{ margin-top: 20px; }}
+        .alerts-container {{ display: flex; flex-direction: column; gap: 12px; }}
+        .alert-item {{
             padding: 16px;
             border-radius: 8px;
             border-left: 5px solid;
             background: #1c1c26;
-        }
-        .alert-item.surge { border-left-color: #4caf50; }
-        .alert-item.crash { border-left-color: #f44336; }
-        .alert-title { font-weight: 700; font-size: 16px; margin-bottom: 4px; }
-        .alert-desc { font-size: 14px; color: #ccc; }
+        }}
+        .alert-item.surge {{ border-left-color: #4caf50; }}
+        .alert-item.crash {{ border-left-color: #f44336; }}
+        .alert-title {{ font-weight: 700; font-size: 16px; margin-bottom: 4px; }}
+        .alert-desc {{ font-size: 14px; color: #ccc; }}
 
         /* ===== Footer ===== */
         .footer {{

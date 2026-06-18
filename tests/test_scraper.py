@@ -181,14 +181,15 @@ class TestScraperFactory:
         )
         assert isinstance(scraper, RedditScraper)
 
-    def test_disabled_sources_not_scraped(self, sample_config):
+    @pytest.mark.asyncio
+    async def test_disabled_sources_not_scraped(self, sample_config):
         """The main scraper should skip disabled sources."""
         from anti_detect import AntiDetectClient
         client = AntiDetectClient(sample_config)
         client.enabled = False
 
         scraper = JewelScopeScraper(sample_config, client)
-        results = scraper.run_all()
+        results = await scraper.run_all()
 
         # The disabled source should not appear in results
         assert "test_disabled" not in results or len(results["test_disabled"]) == 0
@@ -218,11 +219,12 @@ class TestJewelScopeScraper:
         headlines = scraper.get_headlines(top_n=2)
         assert len(headlines) <= 2
 
-    def test_empty_scrape_graceful(self, sample_config):
+    @pytest.mark.asyncio
+    async def test_empty_scrape_graceful(self, sample_config):
         """Scraping with no network should return empty results, not crash."""
         from anti_detect import AntiDetectClient
         client = AntiDetectClient(sample_config)
 
         scraper = JewelScopeScraper(sample_config, client)
-        results = scraper.run_all()
+        results = await scraper.run_all()
         assert isinstance(results, dict)

@@ -1,4 +1,5 @@
 import nltk
+from typing import List, Dict
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from rake_nltk import Rake
 from sumy.parsers.plaintext import PlaintextParser

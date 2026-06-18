@@ -10,6 +10,13 @@ from pathlib import Path
 
 import pytest
 import yaml
+from unittest.mock import MagicMock
+
+# Mock PRAW before any tests import it
+import sys
+mock_praw = MagicMock()
+sys.modules["praw"] = mock_praw
+sys.modules["prawcore"] = MagicMock()
 
 # Ensure the project root is in the path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
