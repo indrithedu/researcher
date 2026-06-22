@@ -368,6 +368,59 @@ def main_ui():
                 for e in result["etsy_intel"][:5]:
                     st.markdown(f"- [{e['title']}]({e['url']}) — *{e['source_name']}*")
 
+            # Fine jewelry intelligence
+            fj = result.get("fine_jewelry_insights")
+            if fj:
+                st.subheader("💎 Fine Jewelry Market Intelligence")
+                cols = st.columns(4)
+                cols[0].metric("Shops Tracked", fj.get("total_shops_tracked", 0))
+                cols[1].metric("Listings", fj.get("total_listings_collected", 0))
+                cols[2].metric("Avg Price", f"${fj.get('avg_listing_price', 0):,.0f}")
+                cols[3].metric("Market Value", f"${fj.get('total_market_value', 0):,.0f}")
+
+                with st.expander("🏪 Shop Rankings"):
+                    for s in fj.get("shop_rankings", [])[:10]:
+                        st.markdown(
+                            f"**{s['shop_name']}** — {s['total_listings']} listings, "
+                            f"${s['avg_price']:,.0f} avg, {s['total_sold']} sold"
+                        )
+
+                with st.expander("🥇 Gold Karat Trends"):
+                    for karat, data in sorted(fj.get("gold_karat_trends", {}).items(),
+                                               key=lambda x: x[1]["count"], reverse=True):
+                        st.markdown(
+                            f"**{karat}**: {data['count']} listings, "
+                            f"${data['avg_price']:,.0f} avg, "
+                            f"{data['total_favorites']:,} ❤️"
+                        )
+
+                with st.expander("💎 Top Gemstones"):
+                    for g in fj.get("top_gemstones", [])[:10]:
+                        st.markdown(
+                            f"**{g['gemstone']}**: {g['count']} listings, "
+                            f"${g['avg_price']:,.0f} avg"
+                        )
+
+                with st.expander("🏆 Category Leaders"):
+                    for cat, data in fj.get("category_leaders", {}).items():
+                        st.markdown(
+                            f"**{cat.replace('_', ' ').title()}**: "
+                            f"🏅 {data['top_shop']} — ${data['avg_shop_price']:,.0f} avg"
+                        )
+
+                with st.expander("🔥 High-Demand Listings"):
+                    for l in fj.get("high_demand_listings", [])[:8]:
+                        st.markdown(
+                            f"[{l['title'][:60]}]({l.get('url', '')}) — "
+                            f"${l['price']:,.0f} · {l['favorites']} ❤️ · {l['shop_name']}"
+                        )
+
+                with st.expander("🏷️ Top SEO Tags"):
+                    tags = fj.get("top_fine_jewelry_tags", [])[:20]
+                    cols = st.columns(4)
+                    for i, t in enumerate(tags):
+                        cols[i % 4].markdown(f"`#{t['tag']}` ({t['count']})")
+
             # Commodity prices
             if result["commodity_prices"]:
                 st.subheader("💲 Commodity Prices")

@@ -127,6 +127,42 @@ def run_full_scrape(config: dict) -> dict:
         errors=[str(e) for e in errors],
     )
 
+    # ---- Fine Jewelry Intelligence ----
+    fine_jewelry_insights = None
+    try:
+        from etsy_api import FineJewelryAnalyzer
+        fj_analyzer = FineJewelryAnalyzer()
+        fj_scan = fj_analyzer.scan_all_shops()
+        if fj_scan.get("listings"):
+            fj_insights = fj_analyzer.analyze()
+            fine_jewelry_insights = {
+                "total_shops_tracked": fj_insights.total_shops_tracked,
+                "total_listings_collected": fj_insights.total_listings_collected,
+                "shops_by_category": fj_insights.shops_by_category,
+                "shops_by_tier": fj_insights.shops_by_tier,
+                "avg_price_by_category": fj_insights.avg_price_by_category,
+                "price_distribution": fj_insights.price_distribution,
+                "optimal_price_ranges": fj_insights.optimal_price_ranges,
+                "gold_karat_trends": fj_insights.gold_karat_trends,
+                "top_gemstones": fj_insights.top_gemstones,
+                "diamond_specs": fj_insights.diamond_specs,
+                "shop_rankings": fj_insights.shop_rankings,
+                "category_leaders": fj_insights.category_leaders,
+                "high_demand_listings": fj_insights.high_demand_listings,
+                "price_change_alerts": fj_insights.price_change_alerts,
+                "sold_out_highlights": fj_insights.sold_out_highlights,
+                "top_fine_jewelry_tags": fj_insights.top_fine_jewelry_tags,
+                "top_materials_used": fj_insights.top_materials_used,
+                "avg_listing_price": fj_insights.avg_listing_price,
+                "avg_shop_listings": fj_insights.avg_shop_listings,
+                "total_market_value": fj_insights.total_market_value,
+            }
+            logger.info(f"Fine jewelry intelligence collected: "
+                        f"{fj_insights.total_shops_tracked} shops, "
+                        f"{fj_insights.total_listings_collected} listings")
+    except Exception as e:
+        logger.warning(f"Fine jewelry scan skipped: {e}")
+
     # Generate report
     from report_generator import ReportGenerator
     report_gen = ReportGenerator(config)
@@ -145,6 +181,7 @@ def run_full_scrape(config: dict) -> dict:
             "total_articles": total_articles,
             "volatility_alerts": volatility_alerts,
         },
+        fine_jewelry_insights=fine_jewelry_insights,
         report_date=date.today(),
     )
 
@@ -161,6 +198,8 @@ def run_full_scrape(config: dict) -> dict:
             "total_articles": total_articles,
             "headlines": len(headlines),
             "etsy_intel": len(etsy_intel),
+            "fine_jewelry_shops": fine_jewelry_insights["total_shops_tracked"] if fine_jewelry_insights else 0,
+            "fine_jewelry_listings": fine_jewelry_insights["total_listings_collected"] if fine_jewelry_insights else 0,
             "commodity_prices": len(commodity_prices),
             "sources_succeeded": succeeded,
             "sources_failed": failed,
@@ -175,6 +214,7 @@ def run_full_scrape(config: dict) -> dict:
         "sources_failed": failed,
         "headlines": headlines,
         "etsy_intel": etsy_intel,
+        "fine_jewelry_insights": fine_jewelry_insights,
         "commodity_prices": commodity_prices,
         "all_articles": all_articles,
         "html_path": html_path,

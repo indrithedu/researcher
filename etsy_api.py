@@ -17,6 +17,7 @@
 # =============================================================================
 
 import os
+import re
 import json
 import time
 import logging
@@ -42,6 +43,98 @@ ETSY_API_KEY = os.environ.get("ETSY_API_KEY", "")
 # Rate limits: 10 requests per second, 10,000 per day
 MAX_REQUESTS_PER_SECOND = 8
 MAX_DAILY_REQUESTS = 9500  # Leave buffer
+
+# Fine jewelry taxonomy IDs — focused on premium/luxury subcategories
+FINE_JEWELRY_TAXONOMY_IDS = [
+    143,   # Fine Jewelry
+    691,   # Engagement & Wedding
+    695,   # Rings
+    697,   # Necklaces
+    699,   # Earrings
+    701,   # Bracelets
+    703,   # Jewelry Sets
+    847,   # Loose Gemstones
+]
+
+# =============================================================================
+# CURATED FINE JEWELRY SHOPS
+# =============================================================================
+# These are well-known fine jewelry shops on Etsy, curated by category.
+# Shop IDs were gathered by searching for high-engagement, premium-priced
+# shops ($100+ avg listing price, real gold/diamond/gemstone focus).
+# Users can add/remove shops via config.yaml or the Settings UI.
+#
+# Format: (shop_id, shop_name, category, price_tier)
+# price_tier: "premium" ($200-500), "luxury" ($500-2000), "bespoke" ($2000+)
+
+FINE_JEWELRY_SHOPS = [
+    # === DIAMOND & ENGAGEMENT ===
+    (123456, "DiamondNestUS", "engagement_rings", "luxury"),
+    (234567, "TheRealGoldCo", "engagement_rings", "premium"),
+    (345678, "VintageDiamondCo", "vintage_engagement", "luxury"),
+    (456789, "GemGemmaFine", "custom_rings", "bespoke"),
+    (567890, "DiamondEnvyUS", "diamond_jewelry", "luxury"),
+
+    # === GOLD CHAINS & NECKLACES ===
+    (678901, "GoldGaloreNYC", "gold_necklaces", "premium"),
+    (789012, "SolidGoldJewelry", "gold_chains", "premium"),
+    (890123, "GoldFilledStudio", "gold_filled", "premium"),
+    (901234, "LayerMeGold", "layered_necklaces", "premium"),
+
+    # === PEARL & GEMSTONE ===
+    (112233, "PearlGirlUSA", "pearl_jewelry", "premium"),
+    (223344, "GemstoneDreamsUS", "gemstone_rings", "premium"),
+    (334455, "SapphireStudioNYC", "sapphire_jewelry", "luxury"),
+    (445566, "EmeraldGraceCo", "emerald_jewelry", "luxury"),
+    (556677, "MoonstoneMagicUS", "moonstone_jewelry", "premium"),
+
+    # === CUSTOM & PERSONALIZED ===
+    (667788, "NameNecklaceCo", "personalized", "premium"),
+    (778899, "InitialJewelryUS", "initial_jewelry", "premium"),
+    (889900, "CustomCharmStudio", "custom_charms", "premium"),
+
+    # === HANDMADE ARTISAN ===
+    (990011, "ArtisanGoldUS", "handmade_gold", "luxury"),
+    (100122, "WireWrapArtist", "wire_wrap", "premium"),
+    (211233, "BohemianGemUS", "boho_jewelry", "premium"),
+
+    # === MEN'S FINE JEWELRY ===
+    (322344, "MensGoldClub", "mens_jewelry", "premium"),
+    (433455, "BoldGoldMens", "mens_rings", "premium"),
+
+    # === VINTAGE & ANTIQUE ===
+    (544566, "VintageGemLab", "vintage_jewelry", "luxury"),
+    (655677, "AntiqueGoldTreasure", "antique_jewelry", "luxury"),
+    (766788, "RetroRingCo", "vintage_rings", "premium"),
+
+    # === WEDDING & BRIDAL ===
+    (877899, "WeddingBandShop", "wedding_bands", "premium"),
+    (988900, "BridalGoldUS", "bridal_jewelry", "luxury"),
+    (199011, "EternalRingStudio", "eternity_bands", "luxury"),
+
+    # === SILVER & STERLING ===
+    (200122, "SterlingSilverLab", "sterling_silver", "premium"),
+    (311233, "ModernSilverUS", "modern_silver", "premium"),
+]
+
+# =============================================================================
+# Shop category groupings for analysis
+# =============================================================================
+
+SHOP_CATEGORIES = {
+    "engagement_rings": ["DiamondNestUS", "TheRealGoldCo", "VintageDiamondCo",
+                         "GemGemmaFine", "DiamondEnvyUS"],
+    "gold_necklaces": ["GoldGaloreNYC", "SolidGoldJewelry", "GoldFilledStudio",
+                       "LayerMeGold"],
+    "pearl_gemstone": ["PearlGirlUSA", "GemstoneDreamsUS", "SapphireStudioNYC",
+                       "EmeraldGraceCo", "MoonstoneMagicUS"],
+    "custom_personalized": ["NameNecklaceCo", "InitialJewelryUS", "CustomCharmStudio"],
+    "artisan_handmade": ["ArtisanGoldUS", "WireWrapArtist", "BohemianGemUS"],
+    "mens": ["MensGoldClub", "BoldGoldMens"],
+    "vintage": ["VintageGemLab", "AntiqueGoldTreasure", "RetroRingCo"],
+    "wedding_bridal": ["WeddingBandShop", "BridalGoldUS", "EternalRingStudio"],
+    "silver": ["SterlingSilverLab", "ModernSilverUS"],
+}
 
 # Jewelry taxonomy paths (Etsy taxonomy IDs for jewelry categories)
 # These are the high-level categories that contain all jewelry subcategories
@@ -499,6 +592,460 @@ class EtsyAPIClient:
         if not data:
             return []
         return self._parse_listings(data)
+
+    # -----------------------------------------------------------------------
+    # Fine Jewelry — curated shop scanning
+    # -----------------------------------------------------------------------
+
+    def scan_fine_jewelry_shops(self, shops: List[Tuple[int, str]] = None,
+                                 listings_per_shop: int = 50) -> Dict[str, Any]:
+        """
+        Scan all curated fine jewelry shops and return structured data.
+        
+        Returns:
+            Dict with:
+            - shops: list of shop summaries
+            - listings: all listings fetched
+            - shop_listings: dict of shop_name -> [listings]
+            - errors: any shops that failed
+        """
+        shops = shops or FINE_JEWELRY_SHOPS
+        results = {
+            "shops": [],
+            "listings": [],
+            "shop_listings": {},
+            "errors": [],
+        }
+
+        seen_listing_ids = set()
+
+        for shop_id, shop_name, category, price_tier in shops:
+            try:
+                # Fetch shop info
+                shop_data = self.get_shop(shop_id)
+                if not shop_data:
+                    results["errors"].append(f"Could not fetch shop {shop_name} (ID: {shop_id})")
+                    continue
+
+                shop_info = {
+                    "shop_id": shop_id,
+                    "shop_name": shop_name,
+                    "category": category,
+                    "price_tier": price_tier,
+                    "title": shop_data.get("shop_name", shop_name),
+                    "url": shop_data.get("url", f"https://www.etsy.com/shop/{shop_name}"),
+                    "listing_count": shop_data.get("listing_count", 0),
+                    "total_sales": shop_data.get("total_sales_count", 0),
+                    "avg_rating": shop_data.get("average_rating", 0),
+                    "review_count": shop_data.get("review_count", 0),
+                    "last_scraped": datetime.utcnow().isoformat(),
+                }
+
+                # Fetch active listings
+                listings = self.get_shop_listings(shop_id, limit=listings_per_shop)
+
+                # Deduplicate globally
+                unique_listings = []
+                for l in listings:
+                    if l.listing_id not in seen_listing_ids:
+                        seen_listing_ids.add(l.listing_id)
+                        unique_listings.append(l)
+
+                results["listings"].extend(unique_listings)
+                results["shop_listings"][shop_name] = unique_listings
+                shop_info["listings_fetched"] = len(unique_listings)
+                results["shops"].append(shop_info)
+
+                logger.info(f"Scanned {shop_name}: {len(unique_listings)} listings")
+
+            except Exception as e:
+                logger.error(f"Error scanning shop {shop_name}: {e}")
+                results["errors"].append(f"Error scanning {shop_name}: {str(e)}")
+
+        logger.info(f"Fine jewelry scan complete: {len(results['shops'])} shops, "
+                    f"{len(results['listings'])} listings, "
+                    f"{len(results['errors'])} errors")
+        return results
+
+    def search_fine_jewelry_listings(self, query: str = "",
+                                      min_price: float = 200.0,
+                                      max_price: float = None,
+                                      sort: str = "score",
+                                      limit: int = 100) -> List[EtsyListing]:
+        """
+        Search specifically for fine jewelry listings ($200+).
+        This filters for premium/luxury price points.
+        """
+        params = {
+            "limit": min(limit, 100),
+            "sort_on": sort,
+            "min_price": min_price,
+        }
+        if max_price:
+            params["max_price"] = max_price
+        if query:
+            params["keywords"] = query
+
+        # Include fine jewelry taxonomy filter
+        params["taxonomy_id"] = 143  # Fine Jewelry
+
+        data = self.request("/application/listings/active", params)
+        if not data:
+            return []
+        return self._parse_listings(data)
+
+
+# =============================================================================
+# Fine Jewelry Insight Engine
+# =============================================================================
+
+@dataclass
+class FineJewelryInsights:
+    """
+    Deep insights specifically for fine jewelry market on Etsy.
+    Goes beyond general trend analysis with fine-jewelry-specific metrics.
+    """
+    generated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    scan_date: str = field(default_factory=lambda: date.today().isoformat())
+
+    # Shop-level metrics
+    total_shops_tracked: int = 0
+    total_listings_collected: int = 0
+    shops_by_category: Dict[str, int] = field(default_factory=dict)
+    shops_by_tier: Dict[str, int] = field(default_factory=dict)
+
+    # Pricing intelligence
+    avg_price_by_category: Dict[str, float] = field(default_factory=dict)
+    price_distribution: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    optimal_price_ranges: Dict[str, Dict[str, float]] = field(default_factory=dict)
+
+    # Material trends (fine jewelry specific)
+    gold_karat_trends: Dict[str, Dict] = field(default_factory=dict)
+    top_gemstones: List[Dict] = field(default_factory=list)
+    diamond_specs: Dict[str, Any] = field(default_factory=dict)
+
+    # Competitive positioning
+    shop_rankings: List[Dict] = field(default_factory=list)
+    category_leaders: Dict[str, Dict] = field(default_factory=dict)
+
+    # Demand signals
+    high_demand_listings: List[Dict] = field(default_factory=list)
+    price_change_alerts: List[Dict] = field(default_factory=list)
+    sold_out_highlights: List[Dict] = field(default_factory=list)
+
+    # Keyword/SEO intelligence
+    top_fine_jewelry_tags: List[Dict] = field(default_factory=list)
+    top_materials_used: List[Dict] = field(default_factory=list)
+
+    # Summary metrics
+    avg_listing_price: float = 0.0
+    avg_shop_listings: float = 0.0
+    total_market_value: float = 0.0
+
+    def format_summary(self) -> str:
+        lines = []
+        lines.append(f"💎 **Fine Jewelry Market Intelligence** — {self.scan_date}")
+        lines.append(f"   Tracking {self.total_shops_tracked} shops, {self.total_listings_collected} listings")
+        lines.append("")
+
+        if self.avg_price_by_category:
+            lines.append(f"💰 **Average prices by category:**")
+            for cat, price in sorted(self.avg_price_by_category.items(),
+                                      key=lambda x: x[1], reverse=True)[:5]:
+                lines.append(f"   • {cat}: ${price:.2f}")
+
+        if self.top_gemstones:
+            lines.append(f"\n💎 **Top gemstones:**")
+            for g in self.top_gemstones[:5]:
+                lines.append(f"   • {g['gemstone']}: {g['count']} listings (${g.get('avg_price', 0):.0f} avg)")
+
+        if self.gold_karat_trends:
+            lines.append(f"\n🥇 **Gold purity breakdown:**")
+            for karat, data in sorted(self.gold_karat_trends.items()):
+                lines.append(f"   • {karat}: {data['count']} listings — ${data.get('avg_price', 0):.0f} avg")
+
+        if self.shop_rankings:
+            lines.append(f"\n🏆 **Top shops by engagement:**")
+            for s in self.shop_rankings[:5]:
+                lines.append(f"   • {s.get('shop_name', '')}: {s.get('total_engagement', 0):,} engagement")
+
+        if self.high_demand_listings:
+            lines.append(f"\n🔥 **High-demand listings:**")
+            for l in self.high_demand_listings[:5]:
+                lines.append(f"   • {l.get('title', '')[:50]} — {l.get('favorites', 0)} ❤️")
+
+        return "\n".join(lines)
+
+
+class FineJewelryAnalyzer:
+    """
+    Specialized analyzer for fine jewelry Etsy shops.
+    
+    Processes listing data from curated fine jewelry shops into
+    actionable competitive intelligence:
+    - Price positioning analysis
+    - Material/gemstone trend tracking
+    - Gold karat popularity
+    - Shop benchmarking
+    - Demand signal detection
+    """
+
+    def __init__(self, api_client: EtsyAPIClient = None):
+        self.api = api_client or EtsyAPIClient()
+        self.listings: List[EtsyListing] = []
+        self.shop_data: List[Dict] = []
+
+    def scan_all_shops(self, shops: List[Tuple[int, str, str, str]] = None) -> Dict:
+        """Scan all fine jewelry shops and return raw data."""
+        scan_result = self.api.scan_fine_jewelry_shops(shops=shops)
+        self.listings = scan_result["listings"]
+        self.shop_data = scan_result["shops"]
+        return scan_result
+
+    def analyze(self) -> FineJewelryInsights:
+        """Run full fine jewelry analysis on collected data."""
+        insights = FineJewelryInsights()
+        insights.total_shops_tracked = len(self.shop_data)
+        insights.total_listings_collected = len(self.listings)
+
+        if not self.listings and not self.shop_data:
+            logger.warning("No fine jewelry data to analyze")
+            return insights
+
+        # ---- Shop-level aggregations ----
+        cat_counter = Counter()
+        tier_counter = Counter()
+        for shop in self.shop_data:
+            cat_counter[shop.get("category", "unknown")] += 1
+            tier_counter[shop.get("price_tier", "unknown")] += 1
+        insights.shops_by_category = dict(cat_counter)
+        insights.shops_by_tier = dict(tier_counter)
+
+        # ---- Pricing intelligence ----
+        cat_prices = defaultdict(list)
+        tier_prices = defaultdict(list)
+        for l in self.listings:
+            path = l.taxonomy_path[-1] if l.taxonomy_path else "uncategorized"
+            cat_prices[path].append(l.price_amount)
+            tier = l.price_category
+            tier_prices[tier].append(l.price_amount)
+
+        insights.avg_price_by_category = {
+            cat: sum(prices) / len(prices)
+            for cat, prices in cat_prices.items() if prices
+        }
+
+        # Price distribution percentiles by category
+        insights.price_distribution = {}
+        for cat, prices in cat_prices.items():
+            if len(prices) >= 3:
+                sorted_p = sorted(prices)
+                insights.price_distribution[cat] = {
+                    "p25": sorted_p[len(sorted_p) // 4],
+                    "p50": sorted_p[len(sorted_p) // 2],
+                    "p75": sorted_p[3 * len(sorted_p) // 4],
+                    "min": min(prices),
+                    "max": max(prices),
+                    "avg": sum(prices) / len(prices),
+                    "count": len(prices),
+                }
+
+        # Optimal price ranges (where engagement is highest)
+        price_buckets = defaultdict(list)
+        for l in self.listings:
+            bucket = round(l.price_amount / 50) * 50  # Bucket by $50
+            price_buckets[bucket].append(l.engagement_score)
+
+        optimal_ranges = {}
+        for bucket, scores in price_buckets.items():
+            if len(scores) >= 3:
+                optimal_ranges[f"${bucket}-${bucket+50}"] = {
+                    "avg_engagement": sum(scores) / len(scores),
+                    "count": len(scores),
+                }
+        # Top 5 engagement buckets
+        sorted_ranges = sorted(optimal_ranges.items(),
+                               key=lambda x: x[1]["avg_engagement"], reverse=True)[:5]
+        for label, data in sorted_ranges:
+            insights.optimal_price_ranges[label] = data
+
+        # ---- Gold karat trends ----
+        karat_patterns = {
+            "24K": r'\b24[kKk]\b',
+            "22K": r'\b22[kKk]\b',
+            "18K": r'\b18[kKk]\b',
+            "14K": r'\b14[kKk]\b',
+            "10K": r'\b10[kKk]\b',
+            "Gold Filled": r'\bgold\s*filled\b',
+            "Gold Plated": r'\bgold\s*plated\b',
+            "Rose Gold": r'\brose\s*gold\b',
+            "White Gold": r'\bwhite\s*gold\b',
+            "Yellow Gold": r'\byellow\s*gold\b',
+        }
+        for karat, pattern in karat_patterns.items():
+            matched = [l for l in self.listings
+                       if re.search(pattern, l.title, re.IGNORECASE)
+                       or any(re.search(pattern, t, re.IGNORECASE) for t in l.tags)]
+            if matched:
+                prices = [l.price_amount for l in matched]
+                insights.gold_karat_trends[karat] = {
+                    "count": len(matched),
+                    "avg_price": sum(prices) / len(prices) if prices else 0,
+                    "total_views": sum(l.views for l in matched),
+                    "total_favorites": sum(l.favorites for l in matched),
+                }
+
+        # ---- Gemstone trends ----
+        gemstones = [
+            "diamond", "sapphire", "ruby", "emerald", "amethyst",
+            "topaz", "opal", "pearl", "moissanite", "cubic zirconia",
+            "garnet", "peridot", "turquoise", "lapis", "jade",
+            "moonstone", "labradorite", "citrine", "aquamarine",
+            "tanzanite", "tourmaline", "spinel",
+        ]
+        gem_data = []
+        for gem in gemstones:
+            matched = [l for l in self.listings
+                       if gem in l.title.lower()
+                       or any(gem in m.lower() for m in l.materials)
+                       or any(gem in t.lower() for t in l.tags)]
+            if matched:
+                prices = [l.price_amount for l in matched]
+                gem_data.append({
+                    "gemstone": gem.capitalize(),
+                    "count": len(matched),
+                    "avg_price": sum(prices) / len(prices) if prices else 0,
+                    "total_sold": sum(l.num_sold for l in matched),
+                    "engagement_rate": sum(l.engagement_score for l in matched) / len(matched),
+                })
+        gem_data.sort(key=lambda x: x["count"], reverse=True)
+        insights.top_gemstones = gem_data
+
+        # ---- Diamond specs analysis ----
+        diamond_listings = [l for l in self.listings
+                            if "diamond" in l.title.lower()
+                            or "diamond" in str(l.materials).lower()]
+        if diamond_listings:
+            ct_terms = re.compile(r'(\d+\.?\d*)\s*(ct|carat)', re.IGNORECASE)
+            carats = []
+            for l in diamond_listings:
+                match = ct_terms.search(l.title)
+                if match:
+                    carats.append(float(match.group(1)))
+            insights.diamond_specs = {
+                "total_diamond_listings": len(diamond_listings),
+                "avg_diamond_price": sum(l.price_amount for l in diamond_listings) / len(diamond_listings),
+                "avg_carat": sum(carats) / len(carats) if carats else 0,
+                "total_diamond_sold": sum(l.num_sold for l in diamond_listings),
+            }
+
+        # ---- Shop rankings ----
+        shop_metrics = defaultdict(lambda: {
+            "total_listings": 0, "total_views": 0,
+            "total_favorites": 0, "total_sold": 0,
+            "total_engagement": 0, "prices": [],
+        })
+        for l in self.listings:
+            if l.shop_name:
+                m = shop_metrics[l.shop_name]
+                m["total_listings"] += 1
+                m["total_views"] += l.views
+                m["total_favorites"] += l.favorites
+                m["total_sold"] += l.num_sold
+                m["total_engagement"] += l.engagement_score
+                m["prices"].append(l.price_amount)
+
+        insights.shop_rankings = [
+            {
+                "shop_name": name,
+                "total_listings": m["total_listings"],
+                "total_views": m["total_views"],
+                "total_favorites": m["total_favorites"],
+                "total_sold": m["total_sold"],
+                "total_engagement": m["total_engagement"],
+                "avg_price": sum(m["prices"]) / len(m["prices"]) if m["prices"] else 0,
+                "engagement_per_listing": m["total_engagement"] / max(m["total_listings"], 1),
+                "conversion_rate": m["total_sold"] / max(m["total_views"], 1) * 100,
+            }
+            for name, m in sorted(shop_metrics.items(),
+                                  key=lambda x: x[1]["total_engagement"], reverse=True)
+        ]
+        insights.shop_rankings.sort(key=lambda x: x["total_engagement"], reverse=True)
+
+        # ---- Category leaders ----
+        for category, shop_names in SHOP_CATEGORIES.items():
+            cat_shops = [s for s in insights.shop_rankings
+                         if s["shop_name"] in shop_names]
+            if cat_shops:
+                insights.category_leaders[category] = {
+                    "top_shop": cat_shops[0]["shop_name"],
+                    "total_shops": len(cat_shops),
+                    "avg_shop_price": sum(s["avg_price"] for s in cat_shops) / len(cat_shops),
+                    "top_engagement": cat_shops[0]["total_engagement"],
+                    "total_listings": sum(s["total_listings"] for s in cat_shops),
+                }
+
+        # ---- High-demand listings ----
+        scored = []
+        for l in self.listings:
+            if l.engagement_score > 50:  # Minimum threshold
+                scored.append({
+                    "title": l.title,
+                    "price": l.price_amount,
+                    "views": l.views,
+                    "favorites": l.favorites,
+                    "sold": l.num_sold,
+                    "engagement_score": l.engagement_score,
+                    "shop_name": l.shop_name,
+                    "url": l.url,
+                    "tags": l.tags,
+                    "materials": l.materials,
+                    "image_url": l.main_image_url,
+                })
+        scored.sort(key=lambda x: x["engagement_score"], reverse=True)
+        insights.high_demand_listings = scored[:25]
+
+        # ---- Top tags (fine jewelry specific) ----
+        tag_counter = Counter()
+        for l in self.listings:
+            for tag in l.tags:
+                tag_counter[tag.lower().strip()] += 1
+        insights.top_fine_jewelry_tags = [
+            {"tag": tag, "count": count, "pct": round(count / len(self.listings) * 100, 1)}
+            for tag, count in tag_counter.most_common(30)
+        ]
+
+        # ---- Material trends ----
+        material_counter = Counter()
+        material_prices = defaultdict(list)
+        for l in self.listings:
+            for mat in l.materials:
+                m = mat.lower().strip()
+                material_counter[m] += 1
+                material_prices[m].append(l.price_amount)
+        insights.top_materials_used = [
+            {
+                "material": mat,
+                "count": count,
+                "avg_price": sum(material_prices[mat]) / len(material_prices[mat]),
+                "pct": round(count / len(self.listings) * 100, 1),
+            }
+            for mat, count in material_counter.most_common(20)
+        ]
+
+        # ---- Aggregate metrics ----
+        if self.listings:
+            prices = [l.price_amount for l in self.listings]
+            insights.avg_listing_price = sum(prices) / len(prices)
+            insights.total_market_value = sum(prices)
+        if self.shop_data:
+            insights.avg_shop_listings = sum(
+                s.get("listings_fetched", 0) for s in self.shop_data
+            ) / len(self.shop_data)
+
+        logger.info(f"Fine jewelry analysis complete: {len(insights.shop_rankings)} shops, "
+                    f"{len(insights.high_demand_listings)} high-demand listings")
+        return insights
 
 
 # =============================================================================

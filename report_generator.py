@@ -31,9 +31,12 @@ class ReportGenerator:
                       etsy_intel: List[Dict[str, Any]],
                       commodity_prices: List[Dict[str, Any]],
                       session_summary: dict = None,
+                      fine_jewelry_insights: dict = None,
                       report_date: date = None) -> str:
         """
         Generate a complete HTML report.
+        Args:
+            fine_jewelry_insights: Optional dict from FineJewelryAnalyzer.analyze()
         Returns: path to the generated HTML file.
         """
         report_date = report_date or date.today()
@@ -43,6 +46,7 @@ class ReportGenerator:
             etsy_intel=etsy_intel,
             commodity_prices=commodity_prices,
             session_summary=session_summary or {},
+            fine_jewelry_insights=fine_jewelry_insights,
             report_date=report_date,
         )
 
@@ -56,7 +60,8 @@ class ReportGenerator:
         return filepath
 
     def _build_html(self, articles, headlines, etsy_intel, commodity_prices,
-                    session_summary, report_date) -> str:
+                    session_summary, fine_jewelry_insights=None,
+                    report_date=None) -> str:
         """Build the full HTML document."""
 
         # Format commodity prices nicely
@@ -173,6 +178,196 @@ class ReportGenerator:
 
         if not etsy_items:
             etsy_items = "<div class='empty-state'>No Etsy intelligence found this run.</div>"
+
+        # Build Fine Jewelry Intelligence section
+        fine_jewelry_html = ""
+        if fine_jewelry_insights:
+            fj = fine_jewelry_insights
+            
+            # Shop rankings table
+            shop_rows = ""
+            for s in fj.get("shop_rankings", [])[:10]:
+                shop_rows += f"""
+                <tr>
+                    <td class="fj-shop">{s.get('shop_name', '—')}</td>
+                    <td class="fj-num">{s.get('total_listings', 0)}</td>
+                    <td class="fj-price">${s.get('avg_price', 0):,.0f}</td>
+                    <td class="fj-num">{s.get('total_views', 0):,}</td>
+                    <td class="fj-num">{s.get('total_favorites', 0):,}</td>
+                    <td class="fj-num">{s.get('total_sold', 0):,}</td>
+                    <td class="fj-pct">{s.get('conversion_rate', 0):.2f}%</td>
+                </tr>"""
+
+            # High-demand listings
+            demand_items = ""
+            for l in fj.get("high_demand_listings", [])[:8]:
+                title = l.get('title', 'Untitled')[:60]
+                demand_items += f"""
+                <div class="fj-demand-item">
+                    <div class="fj-demand-title">{title}</div>
+                    <div class="fj-demand-meta">
+                        <span class="fj-demand-price">${l.get('price', 0):,.0f}</span>
+                        <span class="fj-demand-shop">{l.get('shop_name', '')}</span>
+                        <span class="fj-demand-hearts">❤️ {l.get('favorites', 0)}</span>
+                        <span class="fj-demand-sold">Sold: {l.get('sold', 0)}</span>
+                    </div>
+                </div>"""
+
+            # Gold karat breakdown
+            gold_rows = ""
+            for karat, data in sorted(fj.get("gold_karat_trends", {}).items(),
+                                       key=lambda x: x[1]["count"], reverse=True):
+                gold_rows += f"""
+                <tr>
+                    <td class="fj-karat">{karat}</td>
+                    <td class="fj-num">{data['count']}</td>
+                    <td class="fj-price">${data.get('avg_price', 0):,.0f}</td>
+                    <td class="fj-num">{data.get('total_views', 0):,}</td>
+                    <td class="fj-num">{data.get('total_favorites', 0):,}</td>
+                </tr>"""
+
+            # Top gemstones
+            gem_items = ""
+            for g in fj.get("top_gemstones", [])[:10]:
+                gem_items += f"""
+                <div class="fj-gem-item">
+                    <span class="fj-gem-name">💎 {g['gemstone']}</span>
+                    <span class="fj-gem-count">{g['count']} listings</span>
+                    <span class="fj-gem-price">${g.get('avg_price', 0):,.0f} avg</span>
+                </div>"""
+
+            # Top tags
+            tag_items = ""
+            for t in fj.get("top_fine_jewelry_tags", [])[:15]:
+                tag_items += f'<span class="fj-tag">#{t["tag"]} ({t["count"]})</span>'
+
+            # Category leaders
+            cat_rows = ""
+            for cat, data in fj.get("category_leaders", {}).items():
+                cat_rows += f"""
+                <tr>
+                    <td class="fj-cat">{cat.replace('_', ' ').title()}</td>
+                    <td class="fj-shop">{data.get('top_shop', '—')}</td>
+                    <td class="fj-price">${data.get('avg_shop_price', 0):,.0f}</td>
+                    <td class="fj-num">{data.get('total_listings', 0)}</td>
+                </tr>"""
+
+            fine_jewelry_html = f"""
+            <div class="section fj-section">
+                <div class="section-header">
+                    <span class="icon">💎</span>
+                    <h2>Fine Jewelry Market Intelligence</h2>
+                    <span class="badge">{fj.get('total_shops_tracked', 0)} shops · {fj.get('total_listings_collected', 0)} listings</span>
+                </div>
+
+                <!-- Summary Cards -->
+                <div class="fj-summary-grid">
+                    <div class="fj-summary-card">
+                        <div class="fj-summary-value">{fj.get('total_shops_tracked', 0)}</div>
+                        <div class="fj-summary-label">Shops Tracked</div>
+                    </div>
+                    <div class="fj-summary-card">
+                        <div class="fj-summary-value">{fj.get('total_listings_collected', 0)}</div>
+                        <div class="fj-summary-label">Listings Collected</div>
+                    </div>
+                    <div class="fj-summary-card highlight">
+                        <div class="fj-summary-value">${fj.get('avg_listing_price', 0):,.0f}</div>
+                        <div class="fj-summary-label">Avg Listing Price</div>
+                    </div>
+                    <div class="fj-summary-card">
+                        <div class="fj-summary-value">${fj.get('total_market_value', 0):,.0f}</div>
+                        <div class="fj-summary-label">Total Market Value</div>
+                    </div>
+                </div>
+
+                <!-- Shop Rankings -->
+                <div class="fj-subsection">
+                    <h3 class="fj-subsection-title">🏪 Shop Competitive Rankings</h3>
+                    <div style="overflow-x: auto;">
+                        <table class="fj-table">
+                            <thead>
+                                <tr>
+                                    <th>Shop</th>
+                                    <th>Listings</th>
+                                    <th>Avg Price</th>
+                                    <th>Views</th>
+                                    <th>❤️ Favorites</th>
+                                    <th>Sold</th>
+                                    <th>Conv.</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {shop_rows if shop_rows else '<tr><td colspan="7" class="empty">No shop data</td></tr>'}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Category Leaders -->
+                <div class="fj-subsection">
+                    <h3 class="fj-subsection-title">🏆 Category Leaders</h3>
+                    <div style="overflow-x: auto;">
+                        <table class="fj-table">
+                            <thead>
+                                <tr>
+                                    <th>Category</th>
+                                    <th>Top Shop</th>
+                                    <th>Avg Price</th>
+                                    <th>Total Listings</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {cat_rows if cat_rows else '<tr><td colspan="4" class="empty">No category data</td></tr>'}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- High-Demand Listings -->
+                <div class="fj-subsection">
+                    <h3 class="fj-subsection-title">🔥 High-Demand Listings</h3>
+                    <div class="fj-demand-grid">
+                        {demand_items if demand_items else '<div class="empty-state">No high-demand listings found</div>'}
+                    </div>
+                </div>
+
+                <!-- Gold Karat Trends -->
+                <div class="fj-subsection">
+                    <h3 class="fj-subsection-title">🥇 Gold Purity Trends</h3>
+                    <div style="overflow-x: auto;">
+                        <table class="fj-table">
+                            <thead>
+                                <tr>
+                                    <th>Karat</th>
+                                    <th>Listings</th>
+                                    <th>Avg Price</th>
+                                    <th>Views</th>
+                                    <th>❤️ Favorites</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {gold_rows if gold_rows else '<tr><td colspan="5" class="empty">No gold data</td></tr>'}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Top Gemstones -->
+                <div class="fj-subsection">
+                    <h3 class="fj-subsection-title">💎 Top Gemstones</h3>
+                    <div class="fj-gem-grid">
+                        {gem_items if gem_items else '<div class="empty-state">No gemstone data</div>'}
+                    </div>
+                </div>
+
+                <!-- Top Keywords -->
+                <div class="fj-subsection">
+                    <h3 class="fj-subsection-title">🏷️ Top SEO Tags</h3>
+                    <div class="fj-tag-cloud">
+                        {tag_items if tag_items else '<div class="empty-state">No tag data</div>'}
+                    </div>
+                </div>
+            </div>"""
 
         # Build quick-scan table (Clustered)
         quick_scan_rows = ""
@@ -560,6 +755,47 @@ class ReportGenerator:
             .headline-source {{ color: #1a56db; }}
             .qs-source {{ color: #1a56db; }}
         }}
+
+        /* ===== Fine Jewelry Intelligence Styles ===== */
+        .fj-section {{ margin-top: 40px; }}
+        .fj-summary-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 28px; }}
+        .fj-summary-card {{ background: linear-gradient(135deg, #1a1a2e, #1c1c2e); border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #2a2a4a; }}
+        .fj-summary-card.highlight {{ border-color: #ffd700; background: linear-gradient(135deg, #1a1a2e, #2a2a1e); }}
+        .fj-summary-value {{ font-size: 26px; font-weight: 700; color: #fff; }}
+        .fj-summary-card.highlight .fj-summary-value {{ color: #ffd700; }}
+        .fj-summary-label {{ font-size: 11px; color: #8899bb; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }}
+
+        .fj-subsection {{ margin-bottom: 28px; }}
+        .fj-subsection-title {{ font-size: 16px; font-weight: 600; color: #ccd; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid #2a2a3a; }}
+
+        .fj-table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
+        .fj-table th {{ text-align: left; padding: 10px 12px; background: #1a1a24; color: #8899bb; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: 1px; border-bottom: 2px solid #2a2a4a; }}
+        .fj-table td {{ padding: 10px 12px; border-bottom: 1px solid #222; }}
+        .fj-table tr:hover {{ background: #1c1c2a; }}
+        .fj-shop {{ color: #7c9cff; font-weight: 500; }}
+        .fj-num {{ color: #ddd; text-align: right; font-variant-numeric: tabular-nums; }}
+        .fj-price {{ color: #4caf50; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }}
+        .fj-pct {{ color: #ff9800; text-align: right; }}
+        .fj-karat {{ color: #ffd700; font-weight: 600; }}
+        .fj-cat {{ color: #ccd; font-weight: 500; }}
+
+        .fj-demand-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }}
+        .fj-demand-item {{ background: #1a1a24; border-radius: 8px; padding: 14px 16px; border-left: 3px solid #ff9800; }}
+        .fj-demand-title {{ font-weight: 600; font-size: 14px; color: #fff; margin-bottom: 6px; }}
+        .fj-demand-meta {{ display: flex; gap: 12px; font-size: 12px; flex-wrap: wrap; }}
+        .fj-demand-price {{ color: #4caf50; font-weight: 700; }}
+        .fj-demand-shop {{ color: #7c9cff; }}
+        .fj-demand-hearts {{ color: #ff6b9d; }}
+        .fj-demand-sold {{ color: #888; }}
+
+        .fj-gem-grid {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+        .fj-gem-item {{ display: flex; gap: 12px; align-items: center; background: #1a1a24; border-radius: 8px; padding: 10px 14px; border: 1px solid #2a2a3a; min-width: 220px; }}
+        .fj-gem-name {{ font-weight: 600; color: #ccd; min-width: 100px; }}
+        .fj-gem-count {{ color: #8899bb; font-size: 12px; }}
+        .fj-gem-price {{ color: #4caf50; font-weight: 600; margin-left: auto; font-size: 12px; }}
+
+        .fj-tag-cloud {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+        .fj-tag {{ background: #1a1a2e; color: #7c9cff; padding: 4px 12px; border-radius: 16px; font-size: 12px; border: 1px solid #2a2a4a; }}
     </style>
 </head>
 <body>
@@ -631,6 +867,9 @@ class ReportGenerator:
             </div>
             {etsy_items}
         </div>
+
+        <!-- Fine Jewelry Market Intelligence -->
+        {fine_jewelry_html}
 
         <!-- Quick Scan Table -->
         <div class="section">
