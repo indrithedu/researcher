@@ -32,11 +32,15 @@ class ReportGenerator:
                       commodity_prices: List[Dict[str, Any]],
                       session_summary: dict = None,
                       fine_jewelry_insights: dict = None,
+                      google_trends_report: object = None,
+                      pinterest_report: object = None,
                       report_date: date = None) -> str:
         """
         Generate a complete HTML report.
         Args:
             fine_jewelry_insights: Optional dict from FineJewelryAnalyzer.analyze()
+            google_trends_report: Optional TrendsOverlayReport from Google Trends
+            pinterest_report: Optional PinterestTrendReport from Pinterest scraper
         Returns: path to the generated HTML file.
         """
         report_date = report_date or date.today()
@@ -47,6 +51,8 @@ class ReportGenerator:
             commodity_prices=commodity_prices,
             session_summary=session_summary or {},
             fine_jewelry_insights=fine_jewelry_insights,
+            google_trends_report=google_trends_report,
+            pinterest_report=pinterest_report,
             report_date=report_date,
         )
 
@@ -61,6 +67,8 @@ class ReportGenerator:
 
     def _build_html(self, articles, headlines, etsy_intel, commodity_prices,
                     session_summary, fine_jewelry_insights=None,
+                    google_trends_report=None,
+                    pinterest_report=None,
                     report_date=None) -> str:
         """Build the full HTML document."""
 
@@ -365,6 +373,207 @@ class ReportGenerator:
                     <h3 class="fj-subsection-title">🏷️ Top SEO Tags</h3>
                     <div class="fj-tag-cloud">
                         {tag_items if tag_items else '<div class="empty-state">No tag data</div>'}
+                    </div>
+                </div>
+            </div>"""
+
+        # Build Google Trends section
+        google_trends_html = ""
+        if google_trends_report and google_trends_report.total_terms_tracked > 0:
+            gt = google_trends_report
+
+            # Rising terms
+            rising_items = ""
+            for r in gt.rising_google[:8]:
+                rising_items += f"""
+                <div class="gt-term">
+                    <span class="gt-term-name">📈 {r['term']}</span>
+                    <span class="gt-term-value">{r.get('current_value', 0)}</span>
+                    <span class="gt-term-change up">+{r.get('week_change', 0):+.1f}%</span>
+                </div>"""
+
+            # Confirmed trends (Google + Etsy aligned)
+            confirmed_items = ""
+            for c in gt.confirmed_trends[:5]:
+                confirmed_items += f"""
+                <div class="gt-confirmed">
+                    <span class="gt-confirmed-term">🔥 {c['term']}</span>
+                    <span class="gt-confirmed-google">Google: {c.get('google_week_change', 0):+.1f}%</span>
+                    <span class="gt-confirmed-etsy">Etsy: {c.get('etsy_direction', '—')}</span>
+                </div>"""
+
+            # Category averages
+            cat_items = ""
+            for cat, val in gt.category_averages.items():
+                cat_items += f"""
+                <div class="gt-cat-item">
+                    <span class="gt-cat-name">{cat.replace('_', ' ').title()}</span>
+                    <span class="gt-cat-val">{val}/100</span>
+                </div>"""
+
+            google_trends_html = f"""
+            <div class="section gt-section">
+                <div class="section-header">
+                    <span class="icon">📈</span>
+                    <h2>Google Trends — Jewelry Search Demand</h2>
+                    <span class="badge">{gt.total_terms_tracked} terms · {gt.generated_at[:10]}</span>
+                </div>
+
+                <!-- Summary cards -->
+                <div class="gt-summary-grid">
+                    <div class="gt-summary-card">
+                        <div class="gt-summary-value">{len(gt.rising_google)}</div>
+                        <div class="gt-summary-label">Rising Terms</div>
+                    </div>
+                    <div class="gt-summary-card">
+                        <div class="gt-summary-value">{len(gt.falling_google)}</div>
+                        <div class="gt-summary-label">Falling Terms</div>
+                    </div>
+                    <div class="gt-summary-card highlight">
+                        <div class="gt-summary-value">{len(gt.confirmed_trends)}</div>
+                        <div class="gt-summary-label">✅ Confirmed Trends</div>
+                    </div>
+                    <div class="gt-summary-card">
+                        <div class="gt-summary-value">{len(gt.biggest_movers)}</div>
+                        <div class="gt-summary-label">Biggest Movers</div>
+                    </div>
+                </div>
+
+                <!-- Confirmed Trends -->
+                {f'''
+                <div class="gt-subsection">
+                    <h3 class="gt-subsection-title">✅ Confirmed Trends (Google + Etsy Aligned)</h3>
+                    <div class="gt-confirmed-grid">{confirmed_items}</div>
+                </div>''' if confirmed_items else ''}
+
+                <!-- Rising Terms -->
+                <div class="gt-subsection">
+                    <h3 class="gt-subsection-title">📈 Rising on Google This Week</h3>
+                    <div class="gt-term-grid">
+                        {rising_items if rising_items else '<div class="empty-state">No rising terms data</div>'}
+                    </div>
+                </div>
+
+                <!-- Category Averages -->
+                {f'''
+                <div class="gt-subsection">
+                    <h3 class="gt-subsection-title">📊 Category Search Demand</h3>
+                    <div class="gt-cat-grid">{cat_items}</div>
+                </div>''' if cat_items else ''}
+
+                <!-- Diverging Signals -->
+                {f'''
+                <div class="gt-subsection">
+                    <h3 class="gt-subsection-title">⚠️ Diverging Signals (Watchlist)</h3>
+                    <div class="gt-diverging-grid">
+                        {"".join(f'<div class="gt-diverging-item">👀 {d["term"]} — {d.get("note", "")}</div>' for d in gt.diverging_signals[:5])}
+                    </div>
+                </div>''' if gt.diverging_signals else ''}
+            </div>"""
+
+        # Build Pinterest section
+        pinterest_html = ""
+        if pinterest_report and pinterest_report.total_pins_collected > 0:
+            pr = pinterest_report
+
+            # Top pins
+            top_pin_items = ""
+            for p in pr.top_pins[:8]:
+                top_pin_items += f"""
+                <div class="pin-item">
+                    <div class="pin-title">{p.get('title', 'Untitled')[:60]}</div>
+                    <div class="pin-meta">
+                        <span>{p.get('save_count', 0)} saves</span>
+                        <span>💬 {p.get('comment_count', 0)}</span>
+                        <span class="pin-term">#{p.get('search_term', '')}</span>
+                    </div>
+                </div>"""
+
+            # Trending terms
+            term_items = ""
+            for t in pr.trending_terms[:8]:
+                term_items += f"""
+                <div class="pin-term-item">
+                    <span class="pin-term-name">🔍 {t['term']}</span>
+                    <span class="pin-term-count">{t['count']} pins</span>
+                    <span class="pin-term-eng">{t.get('avg_engagement', 0):.0f} avg</span>
+                </div>"""
+
+            # Style distribution
+            style_items = ""
+            for style, count in sorted(pr.style_distribution.items(),
+                                        key=lambda x: x[1], reverse=True):
+                pct = round(count / pr.total_pins_collected * 100, 1)
+                bar_width = max(pct * 3, 5)
+                style_items += f"""
+                <div class="pin-style-item">
+                    <span class="pin-style-name">{style}</span>
+                    <div class="pin-style-bar" style="width: {bar_width}px;"></div>
+                    <span class="pin-style-pct">{pct}%</span>
+                </div>"""
+
+            # Top keywords
+            kw_items = ""
+            for k in pr.top_keywords[:15]:
+                kw_items += f'<span class="pin-kw">#{k["keyword"]} ({k["count"]})</span>'
+
+            pinterest_html = f"""
+            <div class="section pin-section">
+                <div class="section-header">
+                    <span class="icon">📌</span>
+                    <h2>Pinterest — Visual Jewelry Trends</h2>
+                    <span class="badge">{pr.total_pins_collected} pins · {pr.search_terms_scraped} searches</span>
+                </div>
+
+                <!-- Summary -->
+                <div class="pin-summary-grid">
+                    <div class="pin-summary-card">
+                        <div class="pin-summary-value">{pr.total_pins_collected}</div>
+                        <div class="pin-summary-label">Pins Collected</div>
+                    </div>
+                    <div class="pin-summary-card">
+                        <div class="pin-summary-value">{pr.search_terms_scraped}</div>
+                        <div class="pin-summary-label">Searches</div>
+                    </div>
+                    <div class="pin-summary-card">
+                        <div class="pin-summary-value">{len(pr.trending_terms)}</div>
+                        <div class="pin-summary-label">Trending Terms</div>
+                    </div>
+                    <div class="pin-summary-card highlight">
+                        <div class="pin-summary-value">{len(pr.top_keywords)}</div>
+                        <div class="pin-summary-label">Trend Keywords</div>
+                    </div>
+                </div>
+
+                <!-- Top Pins -->
+                <div class="pin-subsection">
+                    <h3 class="pin-subsection-title">⭐ Top Jewelry Pins</h3>
+                    <div class="pin-grid">
+                        {top_pin_items if top_pin_items else '<div class="empty-state">No pin data</div>'}
+                    </div>
+                </div>
+
+                <!-- Trending Terms -->
+                <div class="pin-subsection">
+                    <h3 class="pin-subsection-title">🔥 Most Searched Jewelry on Pinterest</h3>
+                    <div class="pin-term-grid">
+                        {term_items if term_items else '<div class="empty-state">No term data</div>'}
+                    </div>
+                </div>
+
+                <!-- Style Distribution -->
+                <div class="pin-subsection">
+                    <h3 class="pin-subsection-title">🎨 Style Distribution</h3>
+                    <div class="pin-style-grid">
+                        {style_items if style_items else '<div class="empty-state">No style data</div>'}
+                    </div>
+                </div>
+
+                <!-- Keywords -->
+                <div class="pin-subsection">
+                    <h3 class="pin-subsection-title">🏷️ Top Pin Keywords</h3>
+                    <div class="pin-kw-cloud">
+                        {kw_items if kw_items else '<div class="empty-state">No keyword data</div>'}
                     </div>
                 </div>
             </div>"""
@@ -796,6 +1005,73 @@ class ReportGenerator:
 
         .fj-tag-cloud {{ display: flex; flex-wrap: wrap; gap: 6px; }}
         .fj-tag {{ background: #1a1a2e; color: #7c9cff; padding: 4px 12px; border-radius: 16px; font-size: 12px; border: 1px solid #2a2a4a; }}
+
+        /* ===== Google Trends Styles ===== */
+        .gt-section {{ margin-top: 40px; }}
+        .gt-summary-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 28px; }}
+        .gt-summary-card {{ background: linear-gradient(135deg, #1a1a2e, #1c1c2e); border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #2a2a4a; }}
+        .gt-summary-card.highlight {{ border-color: #4caf50; background: linear-gradient(135deg, #1a2a1e, #1c2e1e); }}
+        .gt-summary-value {{ font-size: 26px; font-weight: 700; color: #fff; }}
+        .gt-summary-card.highlight .gt-summary-value {{ color: #4caf50; }}
+        .gt-summary-label {{ font-size: 11px; color: #8899bb; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }}
+
+        .gt-subsection {{ margin-bottom: 28px; }}
+        .gt-subsection-title {{ font-size: 16px; font-weight: 600; color: #ccd; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid #2a2a3a; }}
+
+        .gt-term-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }}
+        .gt-term {{ display: flex; gap: 12px; align-items: center; background: #1a1a24; border-radius: 8px; padding: 10px 14px; border: 1px solid #2a2a3a; }}
+        .gt-term-name {{ font-weight: 600; color: #ccd; flex: 1; font-size: 13px; }}
+        .gt-term-value {{ color: #8899bb; font-size: 14px; font-weight: 700; }}
+        .gt-term-change {{ font-weight: 700; font-size: 12px; }}
+        .gt-term-change.up {{ color: #4caf50; }}
+        .gt-term-change.down {{ color: #f44336; }}
+
+        .gt-confirmed-grid {{ display: flex; flex-direction: column; gap: 8px; }}
+        .gt-confirmed {{ display: flex; gap: 16px; align-items: center; background: #1a2a1e; border-radius: 8px; padding: 12px 16px; border-left: 3px solid #4caf50; }}
+        .gt-confirmed-term {{ font-weight: 600; color: #74c69d; flex: 1; }}
+        .gt-confirmed-google {{ color: #8899bb; font-size: 12px; }}
+        .gt-confirmed-etsy {{ color: #7c9cff; font-size: 12px; }}
+
+        .gt-cat-grid {{ display: flex; flex-wrap: wrap; gap: 8px; }}
+        .gt-cat-item {{ display: flex; gap: 12px; align-items: center; background: #1a1a24; border-radius: 8px; padding: 10px 14px; border: 1px solid #2a2a3a; }}
+        .gt-cat-name {{ font-weight: 600; color: #ccd; min-width: 100px; font-size: 13px; }}
+        .gt-cat-val {{ color: #7c9cff; font-weight: 700; font-size: 14px; }}
+
+        .gt-diverging-grid {{ display: flex; flex-direction: column; gap: 8px; }}
+        .gt-diverging-item {{ background: #2a1e1e; border-radius: 8px; padding: 10px 14px; border-left: 3px solid #ff9800; color: #ccc; font-size: 13px; }}
+
+        /* ===== Pinterest Styles ===== */
+        .pin-section {{ margin-top: 40px; }}
+        .pin-summary-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 16px; margin-bottom: 28px; }}
+        .pin-summary-card {{ background: linear-gradient(135deg, #1a1a2e, #1c1c2e); border-radius: 12px; padding: 20px; text-align: center; border: 1px solid #2a2a4a; }}
+        .pin-summary-card.highlight {{ border-color: #e60023; background: linear-gradient(135deg, #2a1a1e, #2e1c1e); }}
+        .pin-summary-value {{ font-size: 26px; font-weight: 700; color: #fff; }}
+        .pin-summary-card.highlight .pin-summary-value {{ color: #e60023; }}
+        .pin-summary-label {{ font-size: 11px; color: #8899bb; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }}
+
+        .pin-subsection {{ margin-bottom: 28px; }}
+        .pin-subsection-title {{ font-size: 16px; font-weight: 600; color: #ccd; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid #2a2a3a; }}
+
+        .pin-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }}
+        .pin-item {{ background: #1a1a24; border-radius: 8px; padding: 12px 14px; border: 1px solid #2a2a3a; border-left: 3px solid #e60023; }}
+        .pin-title {{ font-weight: 600; font-size: 14px; color: #fff; margin-bottom: 6px; }}
+        .pin-meta {{ display: flex; gap: 10px; font-size: 12px; color: #8899bb; }}
+        .pin-term {{ color: #e60023; }}
+
+        .pin-term-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }}
+        .pin-term-item {{ display: flex; gap: 10px; align-items: center; background: #1a1a24; border-radius: 8px; padding: 10px 14px; border: 1px solid #2a2a3a; }}
+        .pin-term-name {{ font-weight: 600; color: #ccd; flex: 1; font-size: 13px; }}
+        .pin-term-count {{ color: #8899bb; font-size: 12px; }}
+        .pin-term-eng {{ color: #e60023; font-weight: 600; font-size: 12px; }}
+
+        .pin-style-grid {{ display: flex; flex-direction: column; gap: 8px; }}
+        .pin-style-item {{ display: flex; gap: 12px; align-items: center; background: #1a1a24; border-radius: 6px; padding: 8px 12px; }}
+        .pin-style-name {{ font-weight: 600; color: #ccd; min-width: 90px; font-size: 13px; }}
+        .pin-style-bar {{ height: 10px; background: linear-gradient(90deg, #e60023, #ff6b81); border-radius: 5px; }}
+        .pin-style-pct {{ color: #8899bb; font-size: 12px; min-width: 40px; text-align: right; }}
+
+        .pin-kw-cloud {{ display: flex; flex-wrap: wrap; gap: 6px; }}
+        .pin-kw {{ background: #1a1a2e; color: #e60023; padding: 4px 12px; border-radius: 16px; font-size: 12px; border: 1px solid #2a2a4a; }}
     </style>
 </head>
 <body>
@@ -870,6 +1146,12 @@ class ReportGenerator:
 
         <!-- Fine Jewelry Market Intelligence -->
         {fine_jewelry_html}
+
+        <!-- Google Trends — Jewelry Search Demand -->
+        {google_trends_html}
+
+        <!-- Pinterest — Visual Trend Signals -->
+        {pinterest_html}
 
         <!-- Quick Scan Table -->
         <div class="section">

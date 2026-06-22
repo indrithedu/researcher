@@ -434,6 +434,87 @@ def main_ui():
             except Exception:
                 pass
 
+            # Google Trends results
+            gt = result.get("google_trends_report")
+            if gt and gt.total_terms_tracked > 0:
+                st.subheader("📈 Google Trends — Jewelry Search Demand")
+                cols = st.columns(4)
+                cols[0].metric("Rising Terms", len(gt.rising_google))
+                cols[1].metric("Falling Terms", len(gt.falling_google))
+                cols[2].metric("Confirmed Trends", len(gt.confirmed_trends))
+                cols[3].metric("Biggest Movers", len(gt.biggest_movers))
+
+                if gt.confirmed_trends:
+                    with st.expander("✅ Confirmed Trends (Google + Etsy Aligned)"):
+                        for c in gt.confirmed_trends[:5]:
+                            st.markdown(
+                                f"🔥 **{c['term']}** — Google: {c.get('google_week_change', 0):+.1f}% · "
+                                f"Etsy: {c.get('etsy_direction', '—')}"
+                            )
+
+                if gt.rising_google:
+                    with st.expander("📈 Rising on Google This Week"):
+                        for r in gt.rising_google[:10]:
+                            st.markdown(
+                                f"**{r['term']}** → {r.get('current_value', 0)}/100 "
+                                f"({r.get('week_change', 0):+.1f}% weekly)"
+                            )
+
+                if gt.biggest_movers:
+                    with st.expander("🏆 Biggest Movers"):
+                        for m in gt.biggest_movers[:5]:
+                            st.markdown(f"**{m['term']}**: {m.get('week_change', 0):+.1f}%")
+
+                if gt.diverging_signals:
+                    with st.expander("⚠️ Diverging Signals (Watchlist)"):
+                        for d in gt.diverging_signals[:5]:
+                            st.markdown(f"👀 **{d['term']}** — {d.get('note', '')}")
+            else:
+                st.info("📈 Google Trends: install pytrends (`pip install pytrends`) to enable search demand data")
+
+            # Pinterest results
+            pr = result.get("pinterest_report")
+            if pr and pr.total_pins_collected > 0:
+                st.subheader("📌 Pinterest — Visual Jewelry Trends")
+                cols = st.columns(4)
+                cols[0].metric("Pins Collected", pr.total_pins_collected)
+                cols[1].metric("Searches", pr.search_terms_scraped)
+                cols[2].metric("Trending Terms", len(pr.trending_terms))
+                cols[3].metric("Keywords", len(pr.top_keywords))
+
+                if pr.top_pins:
+                    with st.expander("⭐ Top Jewelry Pins"):
+                        for p in pr.top_pins[:8]:
+                            st.markdown(
+                                f"**{p.get('title', 'Untitled')[:60]}** — "
+                                f"{p.get('save_count', 0)} saves · "
+                                f"🔍 {p.get('search_term', '')}"
+                            )
+
+                if pr.trending_terms:
+                    with st.expander("🔥 Trending Search Terms"):
+                        for t in pr.trending_terms[:8]:
+                            st.markdown(
+                                f"**{t['term']}** — {t['count']} pins, "
+                                f"{t.get('avg_engagement', 0):.0f} avg engagement"
+                            )
+
+                if pr.style_distribution:
+                    with st.expander("🎨 Style Distribution"):
+                        for style, count in sorted(pr.style_distribution.items(),
+                                                     key=lambda x: x[1], reverse=True):
+                            pct = count / pr.total_pins_collected * 100
+                            st.markdown(f"**{style}**: {count} pins ({pct:.1f}%)")
+                            st.progress(min(pct / 100, 1.0))
+
+                if pr.top_keywords:
+                    with st.expander("🏷️ Top Keywords"):
+                        cols = st.columns(4)
+                        for i, k in enumerate(pr.top_keywords[:20]):
+                            cols[i % 4].markdown(f"`#{k['keyword']}` ({k['count']})")
+            else:
+                st.info("📌 Pinterest: Playwright needed for scraping (`playwright install chromium`)")
+
             # Commodity prices
             if result["commodity_prices"]:
                 st.subheader("💲 Commodity Prices")

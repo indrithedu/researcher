@@ -176,6 +176,40 @@ def run_full_scrape(config: dict) -> dict:
         except Exception as e:
             logger.warning(f"PostHog push failed: {e}")
 
+    # ---- Google Trends Overlay ----
+    google_trends_report = None
+    try:
+        from google_trends_overlay import TrendsOverlayAnalyzer
+        trends_analyzer = TrendsOverlayAnalyzer()
+        # Pass Etsy material data for correlation if available
+        if fine_jewelry_insights:
+            trends_analyzer.set_etsy_data(
+                materials=fine_jewelry_insights.get("top_materials_used", []),
+                categories=[
+                    {"category": cat, "count": data.get("total_listings", 0),
+                     "trend_direction": "up" if data.get("top_engagement", 0) > 1000 else "stable"}
+                    for cat, data in fine_jewelry_insights.get("category_leaders", {}).items()
+                ],
+            )
+        google_trends_report = trends_analyzer.run_analysis()
+        if google_trends_report and google_trends_report.total_terms_tracked > 0:
+            logger.info(f"Google Trends: {google_trends_report.total_terms_tracked} terms analyzed, "
+                        f"{len(google_trends_report.confirmed_trends)} confirmed trends")
+    except Exception as e:
+        logger.warning(f"Google Trends scan skipped: {e}")
+
+    # ---- Pinterest Trends ----
+    pinterest_report = None
+    try:
+        from pinterest_scraper import PinterestTrendScraper
+        p_scraper = PinterestTrendScraper(config)
+        pinterest_report = p_scraper.scrape_all_terms()
+        if pinterest_report and pinterest_report.total_pins_collected > 0:
+            logger.info(f"Pinterest: {pinterest_report.total_pins_collected} pins from "
+                        f"{pinterest_report.search_terms_scraped} searches")
+    except Exception as e:
+        logger.warning(f"Pinterest scan skipped: {e}")
+
     # Generate report
     from report_generator import ReportGenerator
     report_gen = ReportGenerator(config)
@@ -195,6 +229,8 @@ def run_full_scrape(config: dict) -> dict:
             "volatility_alerts": volatility_alerts,
         },
         fine_jewelry_insights=fine_jewelry_insights,
+        google_trends_report=google_trends_report,
+        pinterest_report=pinterest_report,
         report_date=date.today(),
     )
 
@@ -213,6 +249,8 @@ def run_full_scrape(config: dict) -> dict:
             "etsy_intel": len(etsy_intel),
             "fine_jewelry_shops": fine_jewelry_insights["total_shops_tracked"] if fine_jewelry_insights else 0,
             "fine_jewelry_listings": fine_jewelry_insights["total_listings_collected"] if fine_jewelry_insights else 0,
+            "google_trends_terms": google_trends_report.total_terms_tracked if google_trends_report else 0,
+            "pinterest_pins": pinterest_report.total_pins_collected if pinterest_report else 0,
             "commodity_prices": len(commodity_prices),
             "sources_succeeded": succeeded,
             "sources_failed": failed,
@@ -228,6 +266,8 @@ def run_full_scrape(config: dict) -> dict:
         "headlines": headlines,
         "etsy_intel": etsy_intel,
         "fine_jewelry_insights": fine_jewelry_insights,
+        "google_trends_report": google_trends_report,
+        "pinterest_report": pinterest_report,
         "commodity_prices": commodity_prices,
         "all_articles": all_articles,
         "html_path": html_path,
