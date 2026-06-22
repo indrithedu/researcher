@@ -421,6 +421,19 @@ def main_ui():
                     for i, t in enumerate(tags):
                         cols[i % 4].markdown(f"`#{t['tag']}` ({t['count']})")
 
+            # PostHog analytics status
+            try:
+                from posthog_integration import PostHogClient
+                ph = PostHogClient()
+                if ph.enabled:
+                    st.success("📡 PostHog analytics connected — market events being pushed")
+                    if st.button("📊 Open PostHog Dashboard", use_container_width=True):
+                        st.markdown(f"[PostHog Insights]({ph.get_dashboard_url()})")
+                else:
+                    st.info("📡 PostHog: set POSTHOG_API_KEY env var to enable analytics dashboards")
+            except Exception:
+                pass
+
             # Commodity prices
             if result["commodity_prices"]:
                 st.subheader("💲 Commodity Prices")

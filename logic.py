@@ -163,6 +163,19 @@ def run_full_scrape(config: dict) -> dict:
     except Exception as e:
         logger.warning(f"Fine jewelry scan skipped: {e}")
 
+    # ---- PostHog Analytics ----
+    if fine_jewelry_insights:
+        try:
+            from posthog_integration import PostHogClient
+            ph = PostHogClient()
+            if ph.enabled:
+                ph_results = ph.send_all_fine_jewelry_insights(fine_jewelry_insights)
+                logger.info(ph.format_results_summary(ph_results))
+            else:
+                logger.info("PostHog not configured — skip analytics push")
+        except Exception as e:
+            logger.warning(f"PostHog push failed: {e}")
+
     # Generate report
     from report_generator import ReportGenerator
     report_gen = ReportGenerator(config)

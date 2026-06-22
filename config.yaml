@@ -254,6 +254,19 @@ scheduling:
   interval_hours: 24
 
 # =============================================================================
+# POSTHOG ANALYTICS (optional — set api_key to push market events)
+# =============================================================================
+posthog:
+  enabled: false
+  api_key: ""                                  # "phc_..." — get from app.posthog.com
+  events:
+    scan_summary: true                         # Send scan completed event
+    gold_karat_trends: true                    # Send gold karat popularity per scan
+    gemstone_trends: true                      # Send gemstone trends per scan
+    shop_rankings: true                        # Send top shop rankings per scan
+    category_leaders: true                     # Send category leader events
+
+# =============================================================================
 # EMAIL DELIVERY (optional — set smtp_* to send reports via email)
 # =============================================================================
 email:
