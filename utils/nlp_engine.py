@@ -5,6 +5,7 @@ from sumy.parsers.plaintext import PlaintextParser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.lex_rank import LexRankSummarizer
 import logging
+from typing import List, Dict, Optional, Tuple
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
