@@ -138,6 +138,55 @@ class Report(Base):
         self.report_metadata = json.dumps(data)
 
 
+class CompetitorListing(Base):
+    """
+    Etsy competitor listing with locally stored image.
+    Stores scraped listing data + path to downloaded image.
+    """
+    __tablename__ = "competitor_listings"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    listing_id = Column(Integer, nullable=False, unique=True)  # Etsy listing ID
+    shop_id = Column(Integer, nullable=True)
+    shop_name = Column(String(200), nullable=True)
+    title = Column(String(500), nullable=False)
+    price = Column(Float, nullable=False)
+    currency = Column(String(10), default="USD")
+    tags = Column(JSON, nullable=True)              # JSON list of tags/keywords
+    materials = Column(JSON, nullable=True)          # JSON list of materials
+    category = Column(String(100), nullable=True)    # taxonomy path
+    url = Column(String(1000), nullable=True)
+    image_url = Column(String(1000), nullable=True)  # original Etsy image URL
+    local_image_path = Column(String(500), nullable=True)  # local file path
+    views = Column(Integer, default=0)
+    favorites = Column(Integer, default=0)
+    num_sold = Column(Integer, default=0)
+    is_vintage = Column(Boolean, default=False)
+    search_query = Column(String(200), nullable=True)  # what search found this
+    scraped_at = Column(DateTime, default=datetime.utcnow)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "listing_id": self.listing_id,
+            "shop_name": self.shop_name,
+            "title": self.title,
+            "price": self.price,
+            "currency": self.currency,
+            "tags": self.tags or [],
+            "materials": self.materials or [],
+            "category": self.category,
+            "url": self.url,
+            "image_url": self.image_url,
+            "local_image_path": self.local_image_path,
+            "views": self.views,
+            "favorites": self.favorites,
+            "num_sold": self.num_sold,
+            "is_vintage": self.is_vintage,
+            "search_query": self.search_query,
+        }
+
+
 # ---------------------------------------------------------------------------
 # Database Manager
 # ---------------------------------------------------------------------------
@@ -550,3 +599,130 @@ class DatabaseManager:
         # Sort by momentum descending, then current count descending
         momentum_data.sort(key=lambda x: (x["momentum"], x["count"]), reverse=True)
         return momentum_data
+
+    # -----------------------------------------------------------------------
+    # Competitor Listings (Etsy competitor intelligence)
+    # -----------------------------------------------------------------------
+
+    def save_competitor_listing(self, listing: dict) -> Optional[int]:
+        """
+        Save or update a competitor listing from Etsy.
+        Uses listing_id for upsert (unique constraint).
+        Returns the record ID.
+        """
+        with self.get_session() as session:
+            existing = session.query(CompetitorListing).filter_by(
+                listing_id=listing.get("listing_id")
+            ).first()
+
+            data = {
+                "listing_id": listing.get("listing_id"),
+                "shop_id": listing.get("shop_id"),
+                "shop_name": listing.get("shop_name"),
+                "title": listing.get("title", "Untitled"),
+                "price": float(listing.get("price", 0)),
+                "currency": listing.get("currency", "USD"),
+                "tags": listing.get("tags", []),
+                "materials": listing.get("materials", []),
+                "category": listing.get("category", ""),
+                "url": listing.get("url", ""),
+                "image_url": listing.get("image_url", ""),
+                "local_image_path": listing.get("local_image_path", ""),
+                "views": int(listing.get("views", 0)),
+                "favorites": int(listing.get("favorites", 0)),
+                "num_sold": int(listing.get("num_sold", 0)),
+                "is_vintage": bool(listing.get("is_vintage", False)),
+                "search_query": listing.get("search_query", ""),
+            }
+
+            if existing:
+                for key, value in data.items():
+                    setattr(existing, key, value)
+                existing.scraped_at = datetime.utcnow()
+                record = existing
+            else:
+                record = CompetitorListing(**data)
+                session.add(record)
+
+            session.commit()
+            logger.info(f"Saved competitor listing #{data['listing_id']}: {data['title'][:50]}")
+            return record.id
+
+    def save_competitor_listings(self, listings: list) -> int:
+        """Bulk save competitor listings. Returns count saved."""
+        count = 0
+        for l in listings:
+            try:
+                if self.save_competitor_listing(l):
+                    count += 1
+            except Exception as e:
+                logger.warning(f"Failed to save listing {l.get('listing_id')}: {e}")
+        return count
+
+    def get_competitor_listings(self, limit: int = 100, offset: int = 0,
+                                 shop_name: str = None, search_query: str = None,
+                                 sort_by: str = "scraped_at") -> List[CompetitorListing]:
+        """Get competitor listings with optional filters."""
+        with self.get_session() as session:
+            q = session.query(CompetitorListing)
+
+            if shop_name:
+                q = q.filter(CompetitorListing.shop_name.ilike(f"%{shop_name}%"))
+            if search_query:
+                q = q.filter(CompetitorListing.search_query == search_query)
+
+            sort_col = {"price": CompetitorListing.price,
+                        "views": CompetitorListing.views,
+                        "favorites": CompetitorListing.favorites,
+                        "sold": CompetitorListing.num_sold}.get(sort_by, CompetitorListing.scraped_at)
+
+            return q.order_by(desc(sort_col)).limit(limit).offset(offset).all()
+
+    def get_competitor_stats(self) -> Dict[str, Any]:
+        """Get aggregate stats about competitor listings."""
+        with self.get_session() as session:
+            from sqlalchemy import func
+            stats = session.query(
+                func.count(CompetitorListing.id).label("total"),
+                func.avg(CompetitorListing.price).label("avg_price"),
+                func.sum(CompetitorListing.views).label("total_views"),
+                func.sum(CompetitorListing.favorites).label("total_favorites"),
+                func.sum(CompetitorListing.num_sold).label("total_sold"),
+                func.count(CompetitorListing.shop_name.distinct()).label("unique_shops"),
+            ).first()
+
+            # Top shops
+            top_shops_q = (
+                session.query(
+                    CompetitorListing.shop_name,
+                    func.count(CompetitorListing.id).label("count"),
+                    func.avg(CompetitorListing.price).label("avg_price"),
+                )
+                .filter(CompetitorListing.shop_name.isnot(None))
+                .group_by(CompetitorListing.shop_name)
+                .order_by(desc(func.count(CompetitorListing.id)))
+                .limit(10)
+                .all()
+            )
+
+            # Recent queries
+            recent_queries = (
+                session.query(CompetitorListing.search_query)
+                .filter(CompetitorListing.search_query.isnot(None))
+                .distinct()
+                .all()
+            )
+
+            return {
+                "total_listings": stats.total or 0,
+                "avg_price": round(float(stats.avg_price or 0), 2),
+                "total_views": stats.total_views or 0,
+                "total_favorites": stats.total_favorites or 0,
+                "total_sold": stats.total_sold or 0,
+                "unique_shops": stats.unique_shops or 0,
+                "top_shops": [
+                    {"name": r.shop_name, "count": r.count, "avg_price": round(float(r.avg_price or 0), 2)}
+                    for r in top_shops_q
+                ],
+                "recent_queries": [r[0] for r in recent_queries if r[0]],
+            }

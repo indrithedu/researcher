@@ -37,6 +37,65 @@ from logic import (
     REPORT_DIR
 )
 
+
+def _render_competitor_card(listing: dict):
+    """Render a competitor listing card with image, keywords, and price."""
+
+    price = listing.get("price", 0)
+    title = listing.get("title", "Untitled")[:80]
+    shop = listing.get("shop_name", "Unknown shop")
+    tags = listing.get("tags", [])[:8]
+    views = listing.get("views", 0)
+    favs = listing.get("favorites", 0)
+    sold = listing.get("num_sold", 0)
+    local_img = listing.get("local_image_path", "")
+    image_url = listing.get("image_url", "")
+    listing_url = listing.get("url", "")
+
+    # Card container
+    st.markdown('<div class="competitor-card">', unsafe_allow_html=True)
+
+    # Image
+    if local_img and os.path.exists(local_img):
+        st.image(local_img, use_container_width=True)
+    elif image_url:
+        st.image(image_url, use_container_width=True)
+    else:
+        st.markdown('<div style="height:180px;background:#1a1a24;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#555;">📷 No Image</div>', unsafe_allow_html=True)
+
+    # Title
+    st.markdown(
+        f'<a href="{listing_url}" target="_blank" style="color:#7c9cff;font-weight:600;font-size:14px;">{title}</a>'
+        f'<br><span style="color:#8899bb;font-size:12px;">🏪 {shop}</span>',
+        unsafe_allow_html=True,
+    )
+
+    # Price
+    st.markdown(f'<span style="color:#4caf50;font-size:20px;font-weight:700;">${price:,.2f}</span>',
+                 unsafe_allow_html=True)
+
+    # Metrics row
+    st.markdown(
+        f'<div style="display:flex;gap:12px;font-size:12px;color:#8899bb;">'
+        f'<span>👁️ {views}</span>'
+        f'<span>❤️ {favs}</span>'
+        f'<span>📦 {sold}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Tags
+    if tags:
+        tag_html = " ".join(
+            f'<span style="background:#2a2a4a;color:#8899bb;padding:2px 8px;border-radius:12px;font-size:10px;margin:2px;">#{t}</span>'
+            for t in tags[:6]
+        )
+        st.markdown(f'<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:3px;">{tag_html}</div>',
+                     unsafe_allow_html=True)
+
+    st.markdown('</div><br>', unsafe_allow_html=True)
+
+
 # Ensure directories exist (already handled in logic.py, but safe to keep)
 os.makedirs(os.path.join(APP_DIR, "databases"), exist_ok=True)
 os.makedirs(REPORT_DIR, exist_ok=True)
@@ -78,7 +137,8 @@ def main_ui():
         # Navigation
         page = st.radio(
             "Navigate",
-            ["📊 Dashboard", "📈 Trend Intelligence", "🔍 Run Scan", "📄 Past Reports", "⚙️ Settings"],
+            ["📊 Dashboard", "📈 Trend Intelligence", "🔍 Run Scan",
+             "🛒 Competitor Intel", "📄 Past Reports", "⚙️ Settings"],
             label_visibility="collapsed",
         )
 
@@ -530,6 +590,83 @@ def main_ui():
             st.info(f"Daily scan scheduled: cron `{sched_config.get('cron', '0 7 * * *')}`")
         else:
             st.info("Scheduled scanning is disabled. Enable it in Settings.")
+
+    elif page == "🛒 Competitor Intel":
+        # ========== COMPETITOR INTEL ==========
+        st.title("🛒 Competitor Etsy Intelligence")
+        st.markdown("Browse competitor jewelry listings with images, keywords, and pricing — all stored locally.")
+
+        from competitor_tracker import CompetitorTracker
+        tracker = CompetitorTracker()
+
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            scan_btn = st.button("🔍 Scan Competitors", type="primary", use_container_width=True,
+                                 help="Requires ETSY_API_KEY")
+
+        if scan_btn:
+            with st.spinner("Scanning Etsy for competitor listings..."):
+                result = tracker.scan_competitors()
+                if result["success"]:
+                    st.success(f"✅ Scanned {result['searches_run']} searches, "
+                               f"saved {result['listings_saved']} listings, "
+                               f"{result['images_downloaded']} images")
+                else:
+                    st.warning(f"⚠️ {result.get('error', 'Scan failed')}")
+
+        # Stats row
+        stats = tracker.get_stats()
+        sc1, sc2, sc3, sc4, sc5 = st.columns(5)
+        sc1.metric("Listings", stats["total_listings"])
+        sc2.metric("Shops", stats["unique_shops"])
+        sc3.metric("Avg Price", f"${stats['avg_price']}")
+        sc4.metric("Total Views", f"{stats['total_views']:,}")
+        sc5.metric("Sold", stats["total_sold"])
+
+        # Filters
+        st.markdown("---")
+        fcol1, fcol2, fcol3 = st.columns(3)
+        with fcol1:
+            sort_by = st.selectbox("Sort by", ["Newest", "Price: High to Low", "Price: Low to High",
+                                                "Most Viewed", "Most Favorited", "Most Sold"],
+                                   index=0)
+        with fcol2:
+            shop_filter = st.text_input("Filter by shop", placeholder="Shop name...")
+        with fcol3:
+            queries = stats.get("recent_queries", [])
+            query_filter = st.selectbox("Search query", ["All"] + queries) if queries else "All"
+
+        sort_map = {"Newest": "scraped_at", "Price: High to Low": "price",
+                    "Price: Low to High": "price_asc", "Most Viewed": "views",
+                    "Most Favorited": "favorites", "Most Sold": "sold"}
+        sort_col = sort_map.get(sort_by, "scraped_at")
+        # Handle ascending price
+        if sort_by == "Price: Low to High":
+            sort_col = "price_asc"
+
+        # Fetch listings
+        listings = tracker.get_listings(
+            limit=200,
+            shop_name=shop_filter if shop_filter else None,
+            search_query=query_filter if query_filter and query_filter != "All" else None,
+            sort_by=sort_col,
+        )
+
+        if sort_by == "Price: Low to High":
+            listings.sort(key=lambda x: x.get("price", 0))
+
+        if not listings:
+            st.info("No competitor listings yet. Click 'Scan Competitors' above to fetch listings from Etsy.")
+        else:
+            st.markdown(f"**{len(listings)} listings found**")
+            # Display in a grid
+            cols_per_row = 3
+            for i in range(0, len(listings), cols_per_row):
+                row_listings = listings[i:i + cols_per_row]
+                cols = st.columns(cols_per_row)
+                for j, listing in enumerate(row_listings):
+                    with cols[j]:
+                        _render_competitor_card(listing)
 
     elif page == "📄 Past Reports":
         # ========== PAST REPORTS ==========
